@@ -1,0 +1,30 @@
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Ambiente virtual
+.venv/
+
+# Variáveis de ambiente
+.env
+.env.*
+
+# Permitir exemplos de configuração
+!.env.example
+
+# Testes e ferramentas
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+build/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
