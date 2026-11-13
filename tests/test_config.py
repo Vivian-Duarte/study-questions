@@ -1,7 +1,8 @@
 """Testes do carregamento das configurações."""
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from study_questions.config import (
     DEFAULT_CHUNK_WORDS,
