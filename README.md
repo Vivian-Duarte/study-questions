@@ -16,7 +16,6 @@ materiais fornecidos pelos estudantes.
 - Pytest
 - Ruff
 - mypy
-- Gemini API (planejado)
 - Streamlit (planejado)
 
 ## Estado do projeto
