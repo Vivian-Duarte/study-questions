@@ -217,9 +217,6 @@ por variáveis de ambiente, sem armazenamento no Git.
 Os materiais enviados ao provedor de IA deverão
 respeitar os requisitos de privacidade e direitos de uso.
 
-## Versionamento
-
-Versão inicial do pacote: 0.1.0.
 
 O projeto utiliza versionamento semântico e ainda está
 em fase de desenvolvimento.
