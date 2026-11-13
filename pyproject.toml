@@ -42,4 +42,12 @@ files = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --cov=study_questions --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+source = ["study_questions"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
