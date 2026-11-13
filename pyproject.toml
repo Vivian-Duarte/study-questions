@@ -9,17 +9,21 @@ version = "0.1.0"
 description = "Gerador de perguntas de estudo usando LLMs."
 readme = "README.md"
 requires-python = ">=3.11"
+
 dependencies = [
     "pydantic>=2.5,<3",
     "python-dotenv>=1.0,<2",
+    "pypdf>=7.0.1,<8",
 ]
 
 [project.optional-dependencies]
+
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "ruff>=0.5",
     "mypy>=1.10",
+    "reportlab>=4,<6",
 ]
 
 [tool.hatch.build.targets.wheel]
