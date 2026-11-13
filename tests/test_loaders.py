@@ -61,8 +61,7 @@ def _encrypted_pdf() -> bytes:
 
 def test_reads_utf8_text() -> None:
     """Extrai texto de um arquivo TXT codificado em UTF-8."""
-    content = "Olá, mundo! Programação.".encode("utf-8")
-
+    content = "Olá, mundo! Programação.".encode()
     result = parse_document(content, "aula.txt")
 
     assert result == "Olá, mundo! Programação."
