@@ -1,0 +1,330 @@
+"""Testes de geração e validação de perguntas."""
+
+import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
+
+import pytest
+from google.genai import errors
+
+from study_questions.chunking import split_text
+from study_questions.config import Settings, load_settings
+from study_questions.generation import (
+    EmptyResponseError,
+    GeminiRequestError,
+    GeminiTextGenerator,
+    InsufficientMaterialError,
+    InvalidQuestionResponseError,
+    generate_questions,
+)
+from study_questions.models import QuestionType
+
+SOURCE_TEXT = "Python é uma linguagem de programação. A sintaxe de Python é simples."
+SOURCE_EXCERPT = "Python é uma linguagem de programação."
+
+
+class FakeGenerator:
+    """Simula um provedor de IA sem acessar a internet."""
+
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls: list[tuple[str, str]] = []
+
+    def generate(self, *, model: str, prompt: str) -> str:
+        """Registra a solicitação e retorna uma resposta fictícia."""
+        self.calls.append((model, prompt))
+        return self.response
+
+
+def _settings() -> Settings:
+    """Cria configurações de teste."""
+    return load_settings(
+        {
+            "GEMINI_API_KEY": "fake-test-key",
+            "GEMINI_MODEL": "gemini-3.5-flash-lite",
+        }
+    )
+
+
+def _chunk():
+    """Cria um bloco de referência para os testes."""
+    return split_text(
+        SOURCE_TEXT,
+        max_words=100,
+        overlap_words=0,
+    )[0]
+
+
+def _open_question() -> dict[str, object]:
+    """Cria uma pergunta discursiva válida."""
+    return {
+        "type": "open",
+        "statement": "O que é Python?",
+        "answer": "Uma linguagem de programação.",
+        "explanation": "O texto define Python como uma linguagem.",
+        "source_excerpt": SOURCE_EXCERPT,
+        "options": [],
+    }
+
+
+def _multiple_choice_question() -> dict[str, object]:
+    """Cria uma pergunta de múltipla escolha válida."""
+    return {
+        "type": "multiple_choice",
+        "statement": "Qual linguagem é citada no texto?",
+        "answer": "Python",
+        "explanation": "Python é mencionada no material.",
+        "source_excerpt": SOURCE_EXCERPT,
+        "options": ["Python", "Java", "Ruby"],
+    }
+
+
+def _response(questions: list[dict[str, object]]) -> str:
+    """Serializa perguntas fictícias para JSON."""
+    return json.dumps(
+        {"questions": questions},
+        ensure_ascii=False,
+    )
+
+
+def test_generates_valid_open_question() -> None:
+    """Converte uma resposta simulada em QuestionSet."""
+    provider = FakeGenerator(_response([_open_question()]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=1,
+        question_types=(QuestionType.OPEN,),
+    )
+
+    assert len(result.questions) == 1
+    assert result.questions[0].answer == ("Uma linguagem de programação.")
+    assert len(provider.calls) == 1
+    assert provider.calls[0][0] == "gemini-3.5-flash-lite"
+    assert "Gere até 1 perguntas" in provider.calls[0][1]
+
+
+def test_generates_multiple_choice_question() -> None:
+    """Aceita perguntas objetivas com alternativas válidas."""
+    provider = FakeGenerator(_response([_multiple_choice_question()]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_types=(QuestionType.MULTIPLE_CHOICE,),
+    )
+
+    assert result.questions[0].answer == "Python"
+    assert len(result.questions[0].options) == 3
+
+
+def test_accepts_fewer_questions_than_requested() -> None:
+    """Permite gerar menos perguntas quando o conteúdo é limitado."""
+    provider = FakeGenerator(_response([_open_question()]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=5,
+    )
+
+    assert len(result.questions) == 1
+
+
+def test_rejects_invalid_json() -> None:
+    """Rejeita respostas que não são JSON válido."""
+    provider = FakeGenerator("not a json response")
+
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+        )
+
+
+def test_rejects_invalid_question_structure() -> None:
+    """Rejeita perguntas sem os campos obrigatórios."""
+    provider = FakeGenerator(_response([{"type": "open"}]))
+
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+        )
+
+
+def test_rejects_invalid_json_root() -> None:
+    """Rejeita respostas cuja raiz não é um objeto válido."""
+    provider = FakeGenerator("null")
+
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+        )
+
+
+def test_rejects_empty_question_list() -> None:
+    """Identifica material insuficiente para gerar perguntas."""
+    provider = FakeGenerator(_response([]))
+
+    with pytest.raises(InsufficientMaterialError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+        )
+
+
+def test_rejects_missing_source_excerpt() -> None:
+    """Rejeita referências não presentes no material."""
+    question = _open_question()
+    question["source_excerpt"] = "Informação inventada."
+
+    provider = FakeGenerator(_response([question]))
+
+    with pytest.raises(
+        InvalidQuestionResponseError,
+        match="referência ausente",
+    ):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+        )
+
+
+def test_rejects_unrequested_question_type() -> None:
+    """Rejeita perguntas de tipos não solicitados."""
+    provider = FakeGenerator(_response([_multiple_choice_question()]))
+
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+            question_types=(QuestionType.OPEN,),
+        )
+
+
+def test_rejects_excess_questions() -> None:
+    """Respeita a quantidade máxima de perguntas."""
+    provider = FakeGenerator(_response([_open_question(), _open_question()]))
+
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+            question_count=1,
+        )
+
+
+def test_rejects_invalid_parameters_before_api_call() -> None:
+    """Não chama o provedor quando o prompt é inválido."""
+    provider = FakeGenerator(_response([_open_question()]))
+
+    with pytest.raises(ValueError):
+        generate_questions(
+            _chunk(),
+            _settings(),
+            provider=provider,
+            question_count=0,
+        )
+
+    assert provider.calls == []
+
+
+def test_gemini_rejects_blank_api_key() -> None:
+    """Impede a criação de um provedor sem credenciais."""
+    with pytest.raises(ValueError):
+        GeminiTextGenerator("  ")
+
+
+def test_gemini_uses_json_response_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Confirma a configuração da SDK sem chamadas reais."""
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value.models.generate_content.return_value = SimpleNamespace(
+        text='{"questions": []}'
+    )
+
+    factory = Mock(return_value=fake_client)
+
+    monkeypatch.setattr(
+        "study_questions.generation.genai.Client",
+        factory,
+    )
+
+    generator = GeminiTextGenerator("fake-test-key")
+
+    result = generator.generate(
+        model="test-model",
+        prompt="test-prompt",
+    )
+
+    assert result == '{"questions": []}'
+    factory.assert_called_once_with(api_key="fake-test-key")
+
+    call = fake_client.__enter__.return_value.models.generate_content.call_args
+
+    assert call.kwargs["model"] == "test-model"
+    assert call.kwargs["contents"] == "test-prompt"
+    assert call.kwargs["config"].response_mime_type == ("application/json")
+    fake_client.__exit__.assert_called_once()
+
+
+def test_gemini_rejects_empty_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Detecta respostas sem conteúdo textual."""
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value.models.generate_content.return_value = SimpleNamespace(
+        text=None
+    )
+
+    monkeypatch.setattr(
+        "study_questions.generation.genai.Client",
+        Mock(return_value=fake_client),
+    )
+
+    generator = GeminiTextGenerator("fake-test-key")
+
+    with pytest.raises(EmptyResponseError):
+        generator.generate(
+            model="test-model",
+            prompt="test-prompt",
+        )
+
+
+def test_gemini_wraps_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Converte falhas da API em erros da aplicação."""
+    fake_client = MagicMock()
+
+    fake_client.__enter__.return_value.models.generate_content.side_effect = errors.APIError(
+        429,
+        {"error": {"message": "Limite de requisições"}},
+    )
+
+    monkeypatch.setattr(
+        "study_questions.generation.genai.Client",
+        Mock(return_value=fake_client),
+    )
+
+    generator = GeminiTextGenerator("fake-test-key")
+
+    with pytest.raises(GeminiRequestError):
+        generator.generate(
+            model="test-model",
+            prompt="test-prompt",
+        )
