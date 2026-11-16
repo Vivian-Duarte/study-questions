@@ -1,6 +1,7 @@
 """Geração e validação de perguntas utilizando modelos de IA."""
 
 import json
+import unicodedata
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -10,7 +11,7 @@ from pydantic import ValidationError
 
 from study_questions.chunking import TextChunk
 from study_questions.config import Settings
-from study_questions.models import QuestionSet, QuestionType
+from study_questions.models import Question, QuestionSet, QuestionType
 from study_questions.prompts import (
     DEFAULT_QUESTION_TYPES,
     build_generation_prompt,
@@ -193,13 +194,38 @@ def _validate_generated_questions(
     if len(question_set.questions) > question_count:
         raise InvalidQuestionResponseError("O modelo gerou mais perguntas do que o solicitado.")
 
+    verified_questions: list[Question] = []
+    normalized_source = _normalize_reference(chunk.text)
+
     for question in question_set.questions:
         if question.type not in question_types:
             raise InvalidQuestionResponseError("O modelo gerou um tipo de pergunta não solicitado.")
 
-        if question.source_excerpt not in chunk.text:
-            raise InvalidQuestionResponseError(
-                "Uma pergunta possui uma referência ausente do documento original."
-            )
+        normalized_excerpt = _normalize_reference(question.source_excerpt)
+
+        if normalized_excerpt not in normalized_source:
+            continue
+
+        verified_questions.append(question)
+
+    if not verified_questions:
+        raise InvalidQuestionResponseError(
+            "Uma pergunta possui uma referência ausente do documento original."
+        )
+
+    return QuestionSet(questions=verified_questions)
 
     return question_set
+
+
+def _normalize_reference(text: str) -> str:
+    """Normaliza texto para verificar referências documentais.
+
+    Args:
+        text: Texto ou citação a normalizar.
+
+    Returns:
+        Texto com espaços uniformizados e Unicode normalizado.
+    """
+    normalized = unicodedata.normalize("NFKC", text)
+    return " ".join(normalized.split()).casefold()
