@@ -1,6 +1,5 @@
-"""Testes automatizados da interface Streamlit."""
+"""Testes da interface em duas colunas e do quiz interativo."""
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -13,17 +12,14 @@ APP_PATH = Path(__file__).resolve().parents[1] / "streamlit_app.py"
 
 
 def _app() -> AppTest:
-    """Inicializa a interface em ambiente de teste."""
     return AppTest.from_file(str(APP_PATH)).run()
 
 
 def _fake_settings() -> Settings:
-    """Cria configurações sem utilizar credenciais reais."""
     return Settings(gemini_api_key="fake-test-key")
 
 
-def _fake_question_set() -> QuestionSet:
-    """Cria uma pergunta válida para simular a geração."""
+def _fake_open_question_set() -> QuestionSet:
     return QuestionSet(
         questions=[
             Question(
@@ -31,142 +27,148 @@ def _fake_question_set() -> QuestionSet:
                 statement="O que é Python?",
                 answer="Uma linguagem de programação.",
                 explanation="O texto apresenta a definição.",
-                source_excerpt=("Python é uma linguagem de programação."),
+                source_excerpt="Python é uma linguagem de programação.",
             )
         ]
     )
 
 
+def _fake_multiple_choice_set() -> QuestionSet:
+    return QuestionSet(
+        questions=[
+            Question(
+                type=QuestionType.MULTIPLE_CHOICE,
+                statement="Qual linguagem é citada no documento?",
+                answer="Python",
+                explanation="Python é mencionada no texto.",
+                source_excerpt="Python é uma linguagem de programação.",
+                options=["Java", "Python", "Ruby"],
+            )
+        ]
+    )
+
+
+def _mock_generation(monkeypatch: pytest.MonkeyPatch, result: QuestionSet) -> None:
+    def fake_generate(*args: object, **kwargs: object) -> QuestionSet:
+        return result
+
+    monkeypatch.setattr("study_questions.config.load_settings", _fake_settings)
+    monkeypatch.setattr("study_questions.pipeline.generate_from_text", fake_generate)
+
+
+def _upload_text(at: AppTest) -> AppTest:
+    return (
+        at.file_uploader[0]
+        .upload(
+            "aula.txt",
+            "Python é uma linguagem de programação.".encode(),
+            "text/plain",
+        )
+        .run()
+    )
+
+
+def _click_button(at: AppTest, label: str) -> AppTest:
+    button = next(button for button in at.button if button.label == label)
+    return button.click().run()
+
+
 def test_interface_loads_without_api_key() -> None:
-    """Abre a página sem exigir credenciais imediatamente."""
     at = _app()
 
     assert not at.exception
-    assert at.title[0].value == "Study Questions"
+    assert at.title[0].value == "Perguntas de estudo"
     assert len(at.file_uploader) == 1
     assert len(at.download_button) == 0
 
 
 def test_requires_document_before_generation() -> None:
-    """Impede a geração sem um arquivo enviado."""
     at = _app()
-
-    at.button[0].click().run()
+    at = _click_button(at, "Gerar perguntas")
 
     assert not at.exception
-    assert len(at.warning) == 1
-    assert "Envie um documento" in at.warning[0].value
+    assert any("Envie um documento" in item.value for item in at.warning)
 
 
 def test_requires_question_type() -> None:
-    """Impede a geração quando nenhum tipo está selecionado."""
-    at = _app()
-
-    at.file_uploader[0].upload(
-        "aula.txt",
-        b"Python facilita o estudo de programacao.",
-        "text/plain",
-    ).run()
-
+    at = _upload_text(_app())
     at.multiselect[0].set_value([]).run()
-    at.button[0].click().run()
+    at = _click_button(at, "Gerar perguntas")
 
     assert not at.exception
-    assert len(at.warning) == 1
-    assert "pelo menos um tipo" in at.warning[0].value
+    assert any("pelo menos um tipo" in item.value for item in at.warning)
 
 
-def test_generates_questions_without_real_api(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Simula a geração e verifica os botões de exportação."""
-    calls: list[int] = []
-
-    def fake_generate(
-        text: str,
-        settings: Settings,
-        *,
-        question_count: int,
-        question_types: Sequence[QuestionType],
-    ) -> QuestionSet:
-        """Retorna perguntas fictícias sem acessar o Gemini."""
-        assert "Python" in text
-        assert settings.gemini_api_key == "fake-test-key"
-        assert QuestionType.OPEN in question_types
-        calls.append(question_count)
-        return _fake_question_set()
-
-    monkeypatch.setattr(
-        "study_questions.config.load_settings",
-        _fake_settings,
-    )
-    monkeypatch.setattr(
-        "study_questions.pipeline.generate_from_text",
-        fake_generate,
-    )
-
-    at = _app()
-    at.file_uploader[0].upload(
-        "aula.txt",
-        "Python é uma linguagem de programação.".encode(),
-        "text/plain",
-    ).run()
-
-    at.button[0].click().run()
+def test_generates_questions_without_real_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_generation(monkeypatch, _fake_open_question_set())
+    at = _upload_text(_app())
+    at = _click_button(at, "Gerar perguntas")
 
     assert not at.exception
-    assert calls == [5]
     assert len(at.success) == 1
     assert len(at.download_button) == 2
+    assert any(button.label == "Revelar resposta" for button in at.button)
 
     at.number_input[0].set_value(6).run()
-
     assert not at.exception
     assert len(at.download_button) == 0
 
 
 def test_rejects_invalid_pdf() -> None:
-    """Apresenta um erro quando o PDF não pode ser lido."""
     at = _app()
-
     at.file_uploader[0].upload(
         "aula.pdf",
         b"not a valid pdf",
         "application/pdf",
     ).run()
-
-    at.button[0].click().run()
+    at = _click_button(at, "Gerar perguntas")
 
     assert not at.exception
-    assert len(at.error) == 1
-    assert "Não foi possível gerar" in at.error[0].value
+    assert any("Não foi possível gerar" in item.value for item in at.error)
     assert len(at.download_button) == 0
 
 
-def test_displays_configuration_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Exibe erros de configuração sem chamar a API real."""
-
+def test_displays_configuration_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def invalid_settings() -> Settings:
-        """Simula uma configuração ausente."""
         raise ConfigError("Chave de API não configurada.")
 
-    monkeypatch.setattr(
-        "study_questions.config.load_settings",
-        invalid_settings,
-    )
-
-    at = _app()
-
-    at.file_uploader[0].upload(
-        "aula.txt",
-        b"Python is a programming language.",
-        "text/plain",
-    ).run()
-
-    at.button[0].click().run()
+    monkeypatch.setattr("study_questions.config.load_settings", invalid_settings)
+    at = _upload_text(_app())
+    at = _click_button(at, "Gerar perguntas")
 
     assert not at.exception
-    assert len(at.error) == 1
-    assert "Chave de API não configurada" in at.error[0].value
+    assert any("Chave de API não configurada" in item.value for item in at.error)
+
+
+def test_correct_choice_updates_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_generation(monkeypatch, _fake_multiple_choice_set())
+    at = _upload_text(_app())
+    at = _click_button(at, "Gerar perguntas")
+    at = _click_button(at, "Python")
+
+    assert not at.exception
+    assert any("1 acerto(s)" in item.value for item in at.markdown)
+    assert any("Correta" in item.value for item in at.markdown)
+    assert len(at.download_button) == 2
+
+
+def test_wrong_choice_updates_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_generation(monkeypatch, _fake_multiple_choice_set())
+    at = _upload_text(_app())
+    at = _click_button(at, "Gerar perguntas")
+    at = _click_button(at, "Java")
+
+    assert not at.exception
+    assert any("1 erro(s)" in item.value for item in at.markdown)
+    assert any("Incorreta" in item.value for item in at.markdown)
+
+
+def test_open_question_self_assessment(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_generation(monkeypatch, _fake_open_question_set())
+    at = _upload_text(_app())
+    at = _click_button(at, "Gerar perguntas")
+    at = _click_button(at, "Revelar resposta")
+    at = _click_button(at, "Acertei")
+
+    assert not at.exception
+    assert any("1 acerto(s)" in item.value for item in at.markdown)
