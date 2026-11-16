@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_CHUNK_WORDS = 1000
 
 
