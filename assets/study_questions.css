@@ -1,0 +1,183 @@
+/* Study Questions | tema de duas colunas baseado na referencia fornecida. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root { color-scheme: dark; }
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    background-color: #151413 !important;
+    color: #f4f2f2 !important;
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+[data-testid="stHeader"] { background-color: transparent !important; }
+[data-testid="stDecoration"] { display: none; }
+[data-testid="stMainBlockContainer"], .block-container {
+    max-width: 1830px !important;
+    padding-top: 28px !important;
+    padding-left: clamp(18px, 2.8vw, 52px) !important;
+    padding-right: clamp(18px, 2.8vw, 52px) !important;
+    padding-bottom: 65px !important;
+}
+* { box-sizing: border-box; }
+h1, h2, h3, p, button, label { font-family: Inter, system-ui, sans-serif !important; }
+h1 { font-size: clamp(27px, 2.2vw, 36px) !important; font-weight: 800 !important; letter-spacing: -.7px !important; }
+h3 { font-size: 20px !important; font-weight: 700 !important; letter-spacing: -.2px !important; }
+[data-testid="stCaptionContainer"] { color: #b3ada9 !important; }
+
+/* Cartoes do painel esquerdo e das perguntas. */
+.st-key-material_card, .st-key-settings_card, .st-key-question_card_0,
+.st-key-empty_card {
+    background: #201e1d !important;
+    border: 1px solid #383432 !important;
+    border-radius: 16px !important;
+    padding: 18px 20px !important;
+}
+div[class*="st-key-question_card_"] {
+    background: #211f1e !important;
+    border: 1px solid #393533 !important;
+    border-radius: 16px !important;
+    padding: 19px 22px !important;
+    margin-bottom: 14px !important;
+}
+.st-key-material_card { margin-bottom: 14px !important; }
+.st-key-settings_card { margin-bottom: 14px !important; }
+.st-key-material_card h3, .st-key-settings_card h3,
+.st-key-empty_card h3 { font-size: 20px !important; }
+
+/* Campos, upload e selecao. */
+[data-testid="stFileUploader"] > div[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploaderDropzone"] {
+    background: #292624 !important;
+    border: 1px dashed #57504e !important;
+    border-radius: 12px !important;
+}
+[data-testid="stFileUploaderDropzone"] button {
+    border-radius: 10px !important;
+    background: #302c2a !important;
+    color: #eeeceb !important;
+    border-color: #4b4642 !important;
+}
+[data-testid="stNumberInput"] input,
+[data-baseweb="select"] > div,
+[data-testid="stNumberInput"] > div > div {
+    background: #2b2725 !important;
+    color: #f5f2f1 !important;
+    border-radius: 11px !important;
+    border-color: #413b39 !important;
+}
+[data-baseweb="tag"] {
+    background-color: #454579 !important;
+    color: #e9e9ff !important;
+    border-radius: 8px !important;
+}
+[data-baseweb="tag"] span { color: #e9e9ff !important; }
+
+/* Botao de geracao. */
+.st-key-generate_button button {
+    background: #8f96f8 !important;
+    border: 1px solid #8f96f8 !important;
+    border-radius: 11px !important;
+    color: #151527 !important;
+    font-weight: 800 !important;
+    min-height: 52px !important;
+}
+.st-key-generate_button button:hover {
+    background: #abb0ff !important;
+    border-color: #abb0ff !important;
+}
+
+/* Perguntas e estados de quiz. */
+.question-eyebrow {
+    color: #b6b1ad !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    letter-spacing: .08em;
+    margin: 0 !important;
+}
+.question-badge {
+    border-radius: 999px;
+    text-align: center;
+    padding: 3px 9px;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0 0 0 auto;
+    width: max-content;
+}
+.badge-correct { background: #123d2c; color: #8ff3b7; }
+.badge-wrong { background: #461c25; color: #ff9aa9; }
+.score-row { display:flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.score-chip {
+    display: inline-flex;
+    white-space: nowrap;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid;
+}
+.score-correct { color: #8ff0b6; background: #113023; border-color: #176a41; }
+.score-wrong { color: #f4a3af; background: #361b21; border-color: #733140; }
+div[class*="st-key-choice_"] button {
+    width: 100% !important;
+    min-height: 50px !important;
+    background: #2b2725 !important;
+    color: #f5f1ef !important;
+    border: 1px solid #44403d !important;
+    border-radius: 11px !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 8px 14px !important;
+    display: flex !important;
+    gap: 11px !important;
+    align-items: center !important;
+    font-weight: 500 !important;
+    margin: 1px 0 !important;
+    transition: background .15s ease, border-color .15s ease;
+}
+div[class*="st-key-choice_"] button:enabled:hover {
+    background: #35302e !important;
+    border-color: #7e81c4 !important;
+}
+div[class*="st-key-choice_"] button:disabled { opacity: 1 !important; }
+div[class*="st-key-choice_"] button::before {
+    flex: 0 0 30px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #3c3735;
+    color: #ded9d6;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 800;
+}
+div[class*="st-key-choice_"] button::after {
+    margin-left: auto;
+    font-size: 20px;
+    font-weight: 800;
+}
+div[class*="st-key-choice_"] button p {
+    color: inherit !important;
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+    text-align: left !important;
+}
+[data-testid="stAlert"] { border-radius: 11px !important; }
+[data-testid="stAlert"][data-baseweb] { background: #112d20 !important; }
+[data-testid="stDownloadButton"] button,
+.st-key-download_json button, .st-key-download_anki button {
+    background: #252321 !important;
+    border: 1px solid #45403d !important;
+    color: #f4f0ef !important;
+    border-radius: 10px !important;
+}
+.st-key-download_json button:hover, .st-key-download_anki button:hover {
+    border-color: #9297ff !important;
+}
+@media(max-width: 900px) {
+    [data-testid="stMainBlockContainer"], .block-container {
+        padding-left: 16px !important; padding-right: 16px !important;
+    }
+    div[class*="st-key-question_card_"] { padding: 16px 12px !important; }
+    .score-row { justify-content: flex-start; }
+}
