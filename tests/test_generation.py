@@ -328,3 +328,40 @@ def test_gemini_wraps_api_error(
             model="test-model",
             prompt="test-prompt",
         )
+
+
+def test_accepts_reference_with_different_whitespace() -> None:
+    """Aceita citações com espaços e quebras de linha diferentes."""
+    question = _open_question()
+    question["source_excerpt"] = "PYTHON   é\numa linguagem de programação."
+
+    provider = FakeGenerator(_response([question]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+    )
+
+    assert len(result.questions) == 1
+
+
+def test_discards_question_with_unverifiable_reference() -> None:
+    """Preserva perguntas válidas e descarta citações inventadas."""
+    valid_question = _open_question()
+    invalid_question = _open_question()
+
+    invalid_question["statement"] = "Qual linguagem é apresentada no documento?"
+    invalid_question["source_excerpt"] = "Essa frase não existe no documento."
+
+    provider = FakeGenerator(_response([valid_question, invalid_question]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=2,
+    )
+
+    assert len(result.questions) == 1
+    assert result.questions[0].statement == ("O que é Python?")
