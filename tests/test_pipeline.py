@@ -2,12 +2,14 @@
 
 import json
 from pathlib import Path
-from unittest.mock import Mock
+from types import SimpleNamespace, TracebackType
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
 from study_questions.config import Settings, load_settings
 from study_questions.generation import GeminiRequestError, InsufficientMaterialError
+from study_questions.metrics import GenerationMetrics
 from study_questions.models import QuestionType
 from study_questions.pipeline import generate_from_document, generate_from_text
 
@@ -30,6 +32,22 @@ class FakeProvider:
         self.repeated_statement = repeated_statement
         self.fail_at = fail_at
         self.calls: list[tuple[int, int, str]] = []
+        self.enter_count = 0
+        self.exit_count = 0
+
+    def __enter__(self) -> "FakeProvider":
+        """Simula o contexto do cliente Gemini."""
+        self.enter_count += 1
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Marca a liberação do cliente simulado."""
+        self.exit_count += 1
 
     def generate(self, *, model: str, prompt: str) -> str:
         """Produz respostas válidas para cada bloco solicitado."""
@@ -310,6 +328,8 @@ def test_uses_gemini_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert len(result.questions) == 2
     factory.assert_called_once_with("fake-api-key")
+    assert fake_provider.enter_count == 1
+    assert fake_provider.exit_count == 1
 
 
 def test_propagates_provider_failures() -> None:
@@ -335,3 +355,165 @@ def test_rejects_invalid_question_type() -> None:
             provider=FakeProvider(),
             question_types=("invalid",),  # type: ignore[arg-type]
         )
+
+
+def test_metrics_count_successes_and_unique_questions() -> None:
+    """Registra as chamadas sem modificar a quantidade de perguntas."""
+    provider = FakeProvider()
+    metrics = GenerationMetrics()
+
+    result = generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=provider,
+        metrics=metrics,
+        question_count=5,
+        overlap_words=0,
+    )
+
+    assert len(result.questions) == 5
+    assert metrics.requests_attempted == 3
+    assert metrics.requests_succeeded == 3
+    assert metrics.requests_insufficient == 0
+    assert metrics.requests_failed == 0
+    assert metrics.questions_validated == 5
+    assert metrics.questions_unique == 5
+    assert metrics.duplicates_removed == 0
+    assert len(metrics.request_durations_seconds) == 3
+    assert all(value >= 0 for value in metrics.request_durations_seconds)
+    assert metrics.total_generation_seconds >= 0
+
+
+def test_metrics_count_insufficient_and_duplicates() -> None:
+    """Diferencia blocos sem material de perguntas repetidas."""
+    insufficient_metrics = GenerationMetrics()
+    generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=FakeProvider(insufficient={1}),
+        metrics=insufficient_metrics,
+        question_count=3,
+        overlap_words=0,
+    )
+    assert insufficient_metrics.requests_attempted == 3
+    assert insufficient_metrics.requests_succeeded == 2
+    assert insufficient_metrics.requests_insufficient == 1
+    assert insufficient_metrics.requests_failed == 0
+    assert insufficient_metrics.questions_unique == 2
+
+    duplicate_metrics = GenerationMetrics()
+    result = generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=FakeProvider(repeated_statement=True),
+        metrics=duplicate_metrics,
+        question_count=3,
+        overlap_words=0,
+    )
+    assert len(result.questions) == 1
+    assert duplicate_metrics.questions_validated == 3
+    assert duplicate_metrics.questions_unique == 1
+    assert duplicate_metrics.duplicates_removed == 2
+
+
+def test_metrics_record_provider_error_without_retry() -> None:
+    """Mantém a falha original e a contabiliza uma única vez."""
+    provider = FakeProvider(fail_at=1)
+    metrics = GenerationMetrics()
+
+    with pytest.raises(GeminiRequestError):
+        generate_from_text(
+            SOURCE_TEXT,
+            _settings(),
+            provider=provider,
+            metrics=metrics,
+            question_count=3,
+            overlap_words=0,
+        )
+
+    assert metrics.requests_attempted == 2
+    assert metrics.requests_succeeded == 1
+    assert metrics.requests_failed == 1
+    assert metrics.requests_insufficient == 0
+    assert len(provider.calls) == 2
+    assert len(metrics.request_durations_seconds) == 2
+    assert metrics.total_generation_seconds >= 0
+
+
+def test_document_generation_forwards_metrics(tmp_path: Path) -> None:
+    """Permite coletar métricas também a partir de um arquivo."""
+    path = tmp_path / "aula.txt"
+    path.write_text(SOURCE_TEXT, encoding="utf-8")
+    metrics = GenerationMetrics()
+
+    generate_from_document(
+        path,
+        _settings(),
+        provider=FakeProvider(),
+        metrics=metrics,
+        question_count=2,
+        overlap_words=0,
+    )
+
+    assert metrics.requests_attempted == 2
+    assert metrics.questions_unique == 2
+
+
+def test_external_provider_remains_under_caller_control() -> None:
+    """Não fecha provedores recebidos de quem chama a função."""
+    provider = FakeProvider()
+
+    generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=provider,
+        question_count=2,
+        overlap_words=0,
+    )
+
+    assert provider.enter_count == 0
+    assert provider.exit_count == 0
+
+
+def test_default_pipeline_reuses_one_real_client_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O pipeline usa um único cliente Gemini ao processar vários blocos."""
+    fake_client = MagicMock()
+
+    def fake_generate_content(*, model: str, contents: str, config: object) -> object:
+        """Retorna uma pergunta por bloco, sem acessar a rede."""
+        source = json.loads(contents.split("Material de referência (JSON):\n", 1)[1])
+        index = int(source["chunk_index"])
+        return SimpleNamespace(
+            text=json.dumps(
+                {
+                    "questions": [
+                        {
+                            "type": "open",
+                            "statement": f"Qual é o conteúdo do bloco {index}?",
+                            "answer": "Conteúdo do material.",
+                            "explanation": "Resposta baseada no texto.",
+                            "source_excerpt": source["text"],
+                            "options": [],
+                        }
+                    ]
+                }
+            )
+        )
+
+    fake_client.models.generate_content.side_effect = fake_generate_content
+    factory = Mock(return_value=fake_client)
+    monkeypatch.setattr("study_questions.generation.genai.Client", factory)
+
+    result = generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        question_count=3,
+        overlap_words=0,
+    )
+
+    assert len(result.questions) == 3
+    factory.assert_called_once_with(api_key="fake-api-key")
+    assert fake_client.models.generate_content.call_count == 3
+    fake_client.close.assert_called_once()

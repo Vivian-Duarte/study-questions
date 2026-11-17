@@ -407,3 +407,40 @@ def test_preserves_valid_question_with_unrequested_question_type() -> None:
 
     assert len(result.questions) == 1
     assert result.questions[0].type == QuestionType.OPEN
+
+
+def test_gemini_reuses_single_client_in_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Utiliza um cliente para várias requisições e fecha ao terminar."""
+    fake_client = MagicMock()
+    fake_client.models.generate_content.return_value = SimpleNamespace(text='{"questions": []}')
+    factory = Mock(return_value=fake_client)
+    monkeypatch.setattr("study_questions.generation.genai.Client", factory)
+
+    with GeminiTextGenerator("fake-test-key") as generator:
+        first = generator.generate(model="test-model", prompt="chunk 1")
+        second = generator.generate(model="test-model", prompt="chunk 2")
+
+    assert first == second == '{"questions": []}'
+    factory.assert_called_once_with(api_key="fake-test-key")
+    assert fake_client.models.generate_content.call_count == 2
+    fake_client.close.assert_called_once()
+
+
+def test_gemini_closes_client_when_provider_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Libera conexões quando uma chamada ao Gemini falha."""
+    fake_client = MagicMock()
+    fake_client.models.generate_content.side_effect = errors.APIError(
+        429,
+        {"error": {"message": "Limite de requisições"}},
+    )
+    monkeypatch.setattr("study_questions.generation.genai.Client", Mock(return_value=fake_client))
+
+    with pytest.raises(GeminiRequestError):
+        with GeminiTextGenerator("fake-test-key") as generator:
+            generator.generate(model="test-model", prompt="test-prompt")
+
+    fake_client.close.assert_called_once()

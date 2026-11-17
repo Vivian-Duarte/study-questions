@@ -1,7 +1,9 @@
 """Orquestração da geração de perguntas para documentos completos."""
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
+from time import perf_counter
 
 from study_questions.chunking import TextChunk, split_text
 from study_questions.config import Settings
@@ -12,6 +14,7 @@ from study_questions.generation import (
     generate_questions,
 )
 from study_questions.loaders import load_document
+from study_questions.metrics import GenerationMetrics
 from study_questions.models import Question, QuestionSet, QuestionType
 from study_questions.prompts import DEFAULT_QUESTION_TYPES, MAX_QUESTIONS_PER_CHUNK
 
@@ -26,6 +29,7 @@ def generate_from_text(
     question_count: int = 10,
     question_types: Sequence[QuestionType] = DEFAULT_QUESTION_TYPES,
     overlap_words: int | None = None,
+    metrics: GenerationMetrics | None = None,
 ) -> QuestionSet:
     """Gera perguntas sobre um texto completo, distribuindo as solicitações.
 
@@ -36,6 +40,7 @@ def generate_from_text(
         question_count: Quantidade máxima de perguntas para o documento.
         question_types: Tipos de perguntas permitidos.
         overlap_words: Sobreposição entre blocos do documento.
+        metrics: Coletor opcional de latência e resultados, sem dados sensíveis.
 
     Returns:
         Conjunto validado de perguntas únicas.
@@ -68,31 +73,58 @@ def generate_from_text(
     if question_count > len(chunks) * MAX_QUESTIONS_PER_CHUNK:
         raise ValueError("A quantidade solicitada excede o limite de 20 perguntas por bloco.")
 
-    active_provider = (
-        provider if provider is not None else GeminiTextGenerator(settings.gemini_api_key)
+    provider_context: AbstractContextManager[TextGenerationProvider] = (
+        GeminiTextGenerator(settings.gemini_api_key) if provider is None else nullcontext(provider)
     )
     unique_questions: list[Question] = []
     seen: set[tuple[QuestionType, str]] = set()
+    started_at = perf_counter() if metrics is not None else 0.0
 
-    for chunk, amount in _plan_requests(chunks, question_count):
-        try:
-            result = generate_questions(
-                chunk,
-                settings,
-                provider=active_provider,
-                question_count=amount,
-                question_types=question_types,
-            )
-        except InsufficientMaterialError:
-            continue
+    try:
+        with provider_context as active_provider:
+            for chunk, amount in _plan_requests(chunks, question_count):
+                request_started = perf_counter() if metrics is not None else 0.0
+                if metrics is not None:
+                    metrics.requests_attempted += 1
 
-        for question in result.questions:
-            normalized_statement = " ".join(question.statement.casefold().split())
-            key = (question.type, normalized_statement)
+                try:
+                    result = generate_questions(
+                        chunk,
+                        settings,
+                        provider=active_provider,
+                        question_count=amount,
+                        question_types=question_types,
+                    )
+                except InsufficientMaterialError:
+                    if metrics is not None:
+                        metrics.requests_insufficient += 1
+                    continue
+                except Exception:
+                    if metrics is not None:
+                        metrics.requests_failed += 1
+                    raise
+                else:
+                    if metrics is not None:
+                        metrics.requests_succeeded += 1
+                        metrics.questions_validated += len(result.questions)
+                finally:
+                    if metrics is not None:
+                        metrics.request_durations_seconds.append(perf_counter() - request_started)
 
-            if key not in seen:
-                seen.add(key)
-                unique_questions.append(question)
+                for question in result.questions:
+                    normalized_statement = " ".join(question.statement.casefold().split())
+                    key = (question.type, normalized_statement)
+
+                    if key not in seen:
+                        seen.add(key)
+                        unique_questions.append(question)
+                        if metrics is not None:
+                            metrics.questions_unique += 1
+                    elif metrics is not None:
+                        metrics.duplicates_removed += 1
+    finally:
+        if metrics is not None:
+            metrics.total_generation_seconds += perf_counter() - started_at
 
     if not unique_questions:
         raise InsufficientMaterialError(
@@ -110,6 +142,7 @@ def generate_from_document(
     question_count: int = 10,
     question_types: Sequence[QuestionType] = DEFAULT_QUESTION_TYPES,
     overlap_words: int | None = None,
+    metrics: GenerationMetrics | None = None,
 ) -> QuestionSet:
     """Carrega um arquivo e gera perguntas sobre seu conteúdo.
 
@@ -120,6 +153,7 @@ def generate_from_document(
         question_count: Quantidade máxima de perguntas.
         question_types: Tipos de perguntas permitidos.
         overlap_words: Sobreposição entre blocos.
+        metrics: Coletor opcional de métricas da geração (não da leitura).
 
     Returns:
         Conjunto validado de perguntas únicas.
@@ -132,6 +166,7 @@ def generate_from_document(
         question_count=question_count,
         question_types=question_types,
         overlap_words=overlap_words,
+        metrics=metrics,
     )
 
 
