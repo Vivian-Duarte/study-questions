@@ -6,7 +6,7 @@ import pytest
 
 from study_questions.chunking import TextChunk, split_text
 from study_questions.loaders import parse_document
-from study_questions.models import Question, QuestionType
+from study_questions.models import QuestionType
 from study_questions.prompts import build_generation_prompt
 
 
@@ -97,26 +97,17 @@ def test_handles_insufficient_source_information() -> None:
     prompt = build_generation_prompt(_make_chunk())
 
     assert "Não invente informações" in prompt
-    assert '{"questions": []}' in prompt
+    assert "lista vazia de perguntas" in prompt
 
 
-def test_prompt_fields_match_question_model() -> None:
-    """Mantém o contrato textual alinhado ao modelo Pydantic."""
-    fields = {
-        "type",
-        "statement",
-        "answer",
-        "explanation",
-        "source_excerpt",
-        "options",
-    }
-
+def test_prompt_does_not_duplicate_api_output_schema() -> None:
+    """O formato JSON vem do response_schema, não de um exemplo no prompt."""
     prompt = build_generation_prompt(_make_chunk())
 
-    assert set(Question.model_fields) == fields
-
-    for field in fields:
-        assert f'"{field}"' in prompt
+    assert '"questions"' not in prompt
+    assert '"statement"' not in prompt
+    assert "source_excerpt" in prompt  # regra semântica de referência literal
+    assert "saída estruturada" in prompt
 
 
 @pytest.mark.parametrize("question_count", [0, -1, 21])

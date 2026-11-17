@@ -14,6 +14,7 @@ from study_questions.chunking import TextChunk
 from study_questions.config import Settings
 from study_questions.metrics import GenerationMetrics
 from study_questions.models import Question, QuestionSet, QuestionType
+from study_questions.output_schema import GeneratedQuestions
 from study_questions.prompts import (
     DEFAULT_QUESTION_TYPES,
     build_generation_prompt,
@@ -129,11 +130,14 @@ class GeminiTextGenerator:
 
     @staticmethod
     def _request_content(client: genai.Client, *, model: str, prompt: str) -> str | None:
-        """Executa a chamada, mantendo a configuração da resposta JSON."""
+        """Solicita JSON estruturado pelo esquema Pydantic, sem novas chamadas."""
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=GeneratedQuestions,
+            ),
         )
         return response.text
 
