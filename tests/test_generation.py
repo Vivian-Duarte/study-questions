@@ -18,6 +18,7 @@ from study_questions.generation import (
     generate_questions,
 )
 from study_questions.models import QuestionType
+from study_questions.output_schema import GeneratedQuestions
 
 SOURCE_TEXT = "Python é uma linguagem de programação. A sintaxe de Python é simples."
 SOURCE_EXCERPT = "Python é uma linguagem de programação."
@@ -279,6 +280,7 @@ def test_gemini_uses_json_response_mode(
     assert call.kwargs["model"] == "test-model"
     assert call.kwargs["contents"] == "test-prompt"
     assert call.kwargs["config"].response_mime_type == ("application/json")
+    assert call.kwargs["config"].response_schema is GeneratedQuestions
     fake_client.__exit__.assert_called_once()
 
 
@@ -569,3 +571,25 @@ def test_diagnostics_only_contain_aggregated_counts() -> None:
     serialized = str(asdict(metrics))
     assert SOURCE_EXCERPT not in serialized
     assert "fake-test-key" not in serialized
+
+
+def test_gemini_reused_client_uses_structured_schema_on_every_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O esquema é enviado em cada bloco, sem incrementar a quantidade de chamadas."""
+    fake_client = MagicMock()
+    fake_client.models.generate_content.return_value = SimpleNamespace(text='{"questions": []}')
+    factory = Mock(return_value=fake_client)
+    monkeypatch.setattr("study_questions.generation.genai.Client", factory)
+
+    with GeminiTextGenerator("fake-test-key") as generator:
+        generator.generate(model="test-model", prompt="bloco 1")
+        generator.generate(model="test-model", prompt="bloco 2")
+
+    factory.assert_called_once_with(api_key="fake-test-key")
+    assert fake_client.models.generate_content.call_count == 2
+    assert all(
+        call.kwargs["config"].response_schema is GeneratedQuestions
+        for call in fake_client.models.generate_content.call_args_list
+    )
+    fake_client.close.assert_called_once()
