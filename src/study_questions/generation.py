@@ -3,7 +3,8 @@
 import json
 import unicodedata
 from collections.abc import Sequence
-from typing import Protocol
+from types import TracebackType
+from typing import Protocol, Self
 
 from google import genai
 from google.genai import errors, types
@@ -70,6 +71,26 @@ class GeminiTextGenerator:
             raise ValueError("A chave da API não pode estar vazia.")
 
         self._api_key = api_key
+        self._client: genai.Client | None = None
+
+    def __enter__(self) -> Self:
+        """Abre um cliente para reutilizá-lo durante uma geração completa."""
+        if self._client is not None:
+            raise RuntimeError("O cliente Gemini já está aberto.")
+        self._client = genai.Client(api_key=self._api_key)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Fecha as conexões mesmo quando a geração falha."""
+        client = self._client
+        self._client = None
+        if client is not None:
+            client.close()
 
     def generate(self, *, model: str, prompt: str) -> str:
         """Envia um prompt ao Gemini e recupera sua resposta.
@@ -86,15 +107,13 @@ class GeminiTextGenerator:
             EmptyResponseError: Se não houver conteúdo textual.
         """
         try:
-            with genai.Client(api_key=self._api_key) as client:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                    ),
-                )
-                content = response.text
+            if self._client is None:
+                # Uso isolado: preserva o fechamento automático por chamada.
+                with genai.Client(api_key=self._api_key) as client:
+                    content = self._request_content(client, model=model, prompt=prompt)
+            else:
+                # Uso pelo pipeline: reaproveita a conexão entre blocos.
+                content = self._request_content(self._client, model=model, prompt=prompt)
 
         except errors.APIError as exc:
             raise GeminiRequestError(
@@ -106,6 +125,16 @@ class GeminiTextGenerator:
             raise EmptyResponseError("O Gemini não retornou conteúdo textual.")
 
         return content
+
+    @staticmethod
+    def _request_content(client: genai.Client, *, model: str, prompt: str) -> str | None:
+        """Executa a chamada, mantendo a configuração da resposta JSON."""
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        return response.text
 
 
 def generate_questions(
