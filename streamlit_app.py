@@ -9,6 +9,7 @@ from study_questions.config import ConfigError, load_settings
 from study_questions.exporters import export_anki_tsv, export_json
 from study_questions.generation import GenerationError
 from study_questions.loaders import DocumentError, parse_document
+from study_questions.metrics import GenerationMetrics
 from study_questions.models import Question, QuestionSet, QuestionType
 from study_questions.pipeline import generate_from_text
 from study_questions.quiz import (
@@ -362,6 +363,7 @@ def main() -> None:
         st.session_state.pop("generated_questions", None)
         st.session_state.pop("generated_signature", None)
         st.session_state.pop("quiz_exports", None)
+        st.session_state.pop("generation_metrics", None)
         st.session_state["quiz_page"] = 0
         st.session_state["quiz_answers"] = {}
         st.session_state["quiz_revealed"] = set()
@@ -371,6 +373,7 @@ def main() -> None:
         elif not selected_types:
             feedback_slot.warning("Selecione pelo menos um tipo de pergunta.")
         else:
+            run_metrics = GenerationMetrics()
             try:
                 with st.spinner("Gerando perguntas com Gemini..."):
                     text = parse_document(content, uploaded_file.name)
@@ -380,6 +383,7 @@ def main() -> None:
                         settings,
                         question_count=int(question_count),
                         question_types=selected_types,
+                        metrics=run_metrics,
                     )
             except (ConfigError, DocumentError, GenerationError, ValueError) as exc:
                 feedback_slot.error(f"Não foi possível gerar as perguntas: {exc}")
@@ -387,6 +391,9 @@ def main() -> None:
                 st.session_state["generated_questions"] = result
                 st.session_state["generated_signature"] = signature
                 st.session_state["requested_count"] = int(question_count)
+            finally:
+                # Apenas contadores técnicos: não altera a interface e não armazena o PDF.
+                st.session_state["generation_metrics"] = run_metrics
 
     with right:
         result = st.session_state.get("generated_questions")

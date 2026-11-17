@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from study_questions.chunking import TextChunk
 from study_questions.config import Settings
+from study_questions.metrics import GenerationMetrics
 from study_questions.models import Question, QuestionSet, QuestionType
 from study_questions.prompts import (
     DEFAULT_QUESTION_TYPES,
@@ -144,6 +145,7 @@ def generate_questions(
     provider: TextGenerationProvider | None = None,
     question_count: int = 5,
     question_types: Sequence[QuestionType] = DEFAULT_QUESTION_TYPES,
+    metrics: GenerationMetrics | None = None,
 ) -> QuestionSet:
     """Gera e valida perguntas com base em um bloco de texto.
 
@@ -153,6 +155,7 @@ def generate_questions(
         provider: Provedor de IA. Se None, utiliza Gemini.
         question_count: Número máximo de perguntas solicitadas.
         question_types: Tipos de perguntas permitidos.
+        metrics: Diagnóstico opcional, sem conteúdo das perguntas.
 
     Returns:
         Conjunto de perguntas validado pelo Pydantic.
@@ -167,6 +170,9 @@ def generate_questions(
         question_types=question_types,
     )
 
+    if metrics is not None:
+        metrics.questions_requested += question_count
+
     if provider is None:
         provider = GeminiTextGenerator(settings.gemini_api_key)
 
@@ -180,6 +186,7 @@ def generate_questions(
         chunk=chunk,
         question_count=question_count,
         question_types=question_types,
+        metrics=metrics,
     )
 
 
@@ -189,6 +196,7 @@ def _validate_generated_questions(
     chunk: TextChunk,
     question_count: int,
     question_types: Sequence[QuestionType],
+    metrics: GenerationMetrics | None = None,
 ) -> QuestionSet:
     """Valida a estrutura e as referências das perguntas.
 
@@ -197,6 +205,7 @@ def _validate_generated_questions(
         chunk: Bloco utilizado como referência.
         question_count: Quantidade máxima permitida.
         question_types: Tipos de perguntas permitidos.
+        metrics: Coletor opcional dos motivos de descarte.
 
     Returns:
         Conjunto validado de perguntas.
@@ -208,6 +217,8 @@ def _validate_generated_questions(
     try:
         payload: object = json.loads(raw_response)
     except json.JSONDecodeError as exc:
+        if metrics is not None:
+            metrics.responses_invalid_json += 1
         raise InvalidQuestionResponseError("O modelo retornou um JSON inválido.") from exc
 
     if (
@@ -215,15 +226,27 @@ def _validate_generated_questions(
         or set(payload) != {"questions"}
         or not isinstance(payload["questions"], list)
     ):
+        if metrics is not None:
+            metrics.responses_invalid_format += 1
         raise InvalidQuestionResponseError("As perguntas não respeitam o modelo de dados.")
 
     raw_questions = payload["questions"]
+    if metrics is not None:
+        metrics.questions_received += len(raw_questions)
+        if len(raw_questions) <= question_count:
+            metrics.questions_missing_from_response += question_count - len(raw_questions)
+
     if not raw_questions:
+        if metrics is not None:
+            metrics.responses_empty += 1
         raise InsufficientMaterialError(
             "O material não contém informações suficientes para gerar perguntas válidas."
         )
 
     if len(raw_questions) > question_count:
+        if metrics is not None:
+            metrics.responses_excess += 1
+            metrics.questions_rejected_excess_response += len(raw_questions)
         raise InvalidQuestionResponseError("O modelo gerou mais perguntas do que o solicitado.")
 
     verified_questions: list[Question] = []
@@ -234,14 +257,20 @@ def _validate_generated_questions(
         try:
             question = Question.model_validate(raw_question)
         except ValidationError:
+            if metrics is not None:
+                metrics.questions_rejected_structure += 1
             continue
 
         if question.type not in question_types:
+            if metrics is not None:
+                metrics.questions_rejected_type += 1
             continue
 
         normalized_excerpt = _normalize_reference(question.source_excerpt)
         if normalized_excerpt not in normalized_source:
             has_invalid_reference = True
+            if metrics is not None:
+                metrics.questions_rejected_reference += 1
             continue
 
         verified_questions.append(question)

@@ -16,6 +16,19 @@ class GenerationMetrics:
     requests_succeeded: int = 0
     requests_insufficient: int = 0
     requests_failed: int = 0
+    # Quantidades de cada chamada, sem armazenar perguntas ou trechos do documento.
+    questions_requested: int = 0
+    questions_received: int = 0
+    questions_missing_from_response: int = 0
+    questions_rejected_structure: int = 0
+    questions_rejected_type: int = 0
+    questions_rejected_reference: int = 0
+    # Uma resposta acima do limite é rejeitada integralmente.
+    questions_rejected_excess_response: int = 0
+    responses_invalid_json: int = 0
+    responses_invalid_format: int = 0
+    responses_empty: int = 0
+    responses_excess: int = 0
     questions_validated: int = 0
     questions_unique: int = 0
     duplicates_removed: int = 0

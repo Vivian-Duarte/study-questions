@@ -94,6 +94,7 @@ def generate_from_text(
                         provider=active_provider,
                         question_count=amount,
                         question_types=question_types,
+                        metrics=metrics,
                     )
                 except InsufficientMaterialError:
                     if metrics is not None:

@@ -517,3 +517,73 @@ def test_default_pipeline_reuses_one_real_client_object(
     factory.assert_called_once_with(api_key="fake-api-key")
     assert fake_client.models.generate_content.call_count == 3
     fake_client.close.assert_called_once()
+
+
+def test_diagnostics_aggregate_short_responses_across_chunks_without_retries() -> None:
+    """O diagnóstico descreve faltas sem alterar o plano de requisições."""
+    provider = FakeProvider(max_per_call=1)
+    metrics = GenerationMetrics()
+    result = generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=provider,
+        metrics=metrics,
+        question_count=5,
+        overlap_words=0,
+    )
+
+    assert len(result.questions) == 3
+    assert len(provider.calls) == metrics.requests_attempted == 3
+    assert metrics.questions_requested == 5
+    assert metrics.questions_received == 3
+    assert metrics.questions_missing_from_response == 2
+    assert metrics.questions_validated == 3
+    assert metrics.questions_unique == 3
+    assert metrics.duplicates_removed == 0
+
+
+def test_diagnostics_aggregate_empty_and_duplicate_responses() -> None:
+    """Não mistura questões ausentes, rejeições e remoção de duplicatas."""
+    provider = FakeProvider(insufficient={1}, repeated_statement=True)
+    metrics = GenerationMetrics()
+    result = generate_from_text(
+        SOURCE_TEXT,
+        _settings(),
+        provider=provider,
+        metrics=metrics,
+        question_count=3,
+        overlap_words=0,
+    )
+
+    assert len(result.questions) == 1
+    assert len(provider.calls) == 3
+    assert metrics.responses_empty == 1
+    assert metrics.questions_requested == 3
+    assert metrics.questions_received == 2
+    assert metrics.questions_missing_from_response == 1
+    assert metrics.questions_validated == 2
+    assert metrics.questions_unique == 1
+    assert metrics.duplicates_removed == 1
+    assert metrics.requests_insufficient == 1
+
+
+def test_diagnostics_count_failed_request_without_adding_missing_questions() -> None:
+    """Falhas de rede não significam que o modelo retornou menos perguntas."""
+    provider = FakeProvider(fail_at=1)
+    metrics = GenerationMetrics()
+    with pytest.raises(GeminiRequestError):
+        generate_from_text(
+            SOURCE_TEXT,
+            _settings(),
+            provider=provider,
+            metrics=metrics,
+            question_count=3,
+            overlap_words=0,
+        )
+
+    assert len(provider.calls) == 2
+    assert metrics.requests_attempted == 2
+    assert metrics.questions_requested == 2
+    assert metrics.questions_received == 1
+    assert metrics.questions_missing_from_response == 0
+    assert metrics.requests_failed == 1
