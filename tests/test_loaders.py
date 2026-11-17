@@ -7,8 +7,10 @@ import pytest
 from pypdf import PdfWriter
 from reportlab.pdfgen import canvas
 
+import study_questions.loaders as loaders
 from study_questions.loaders import (
     DocumentError,
+    DocumentLimitError,
     EmptyDocumentError,
     UnsupportedFormatError,
     load_document,
@@ -153,3 +155,86 @@ def test_loads_document_from_disk(tmp_path: Path) -> None:
     result = load_document(path)
 
     assert result == "# Aula de Python"
+
+
+@pytest.mark.parametrize("filename", ["aula.txt", "aula.MD", "aula.pdf"])
+def test_rejects_large_in_memory_document(
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
+) -> None:
+    """Bloqueia arquivos grandes antes de processar texto/PDF."""
+    monkeypatch.setattr(loaders, "MAX_DOCUMENT_BYTES", 8)
+    with pytest.raises(DocumentLimitError, match="limite"):
+        parse_document(b"123456789", filename)
+
+
+def test_allows_exact_size_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aceita documentos exatamente no limite de bytes."""
+    monkeypatch.setattr(loaders, "MAX_DOCUMENT_BYTES", 5)
+    assert parse_document(b"hello", "aula.txt") == "hello"
+
+
+def test_rejects_pdf_with_too_many_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Evita extrair texto de PDFs com páginas demais."""
+    monkeypatch.setattr(loaders, "MAX_PDF_PAGES", 1)
+    with pytest.raises(DocumentLimitError, match="páginas"):
+        parse_document(_make_pdf(["Primeira", "Segunda"]), "aula.pdf")
+
+
+def test_rejects_pdf_with_too_much_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Interrompe a acumulação de texto antes de terminar as páginas."""
+    monkeypatch.setattr(loaders, "MAX_EXTRACTED_CHARACTERS", 9)
+    with pytest.raises(DocumentLimitError, match="caracteres"):
+        parse_document(_make_pdf(["Primeira", "Segunda"]), "aula.pdf")
+
+
+def test_rejects_large_txt_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aplica o mesmo limite de texto extraído a documentos TXT."""
+    monkeypatch.setattr(loaders, "MAX_EXTRACTED_CHARACTERS", 5)
+    with pytest.raises(DocumentLimitError, match="caracteres"):
+        parse_document(b"abcdef", "aula.txt")
+
+
+def test_disk_pdf_does_not_call_path_read_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """PDF de disco deve ser lido por stream em vez de read_bytes."""
+    path = tmp_path / "aula.pdf"
+    path.write_bytes(_make_pdf(["Material de estudo"]))
+
+    def fail_read_bytes(self: Path) -> bytes:
+        raise AssertionError("load_document não deve chamar read_bytes para PDF")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+    assert "Material de estudo" in load_document(path)
+
+
+def test_disk_pdf_is_rejected_before_opening_if_too_big(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Confere tamanho do arquivo antes de chamar PdfReader."""
+    path = tmp_path / "aula.pdf"
+    path.write_bytes(_make_pdf(["Texto"]))
+    monkeypatch.setattr(loaders, "MAX_DOCUMENT_BYTES", 10)
+
+    with pytest.raises(DocumentLimitError, match="limite"):
+        load_document(path)
+
+
+def test_disk_txt_is_rejected_before_read_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Texto muito grande é rejeitado antes de alocar seus bytes."""
+    path = tmp_path / "aula.txt"
+    path.write_text("conteúdo longo", encoding="utf-8")
+    monkeypatch.setattr(loaders, "MAX_DOCUMENT_BYTES", 4)
+
+    def fail_read_bytes(self: Path) -> bytes:
+        raise AssertionError("O arquivo foi lido antes de validar o tamanho")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_read_bytes)
+    with pytest.raises(DocumentLimitError, match="limite"):
+        load_document(path)
