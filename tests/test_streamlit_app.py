@@ -274,3 +274,72 @@ def test_exports_are_not_rebuilt_when_answering(
 
     assert not at.exception
     assert counts == {"json": 1, "anki": 1}
+
+
+def test_generation_keeps_diagnostics_in_session_without_extra_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Armazena somente contadores e mantém a interface sem dados técnicos."""
+    from study_questions.metrics import GenerationMetrics
+
+    calls = 0
+
+    def fake_generate(*args: object, **kwargs: object) -> QuestionSet:
+        nonlocal calls
+        calls += 1
+        metrics = kwargs["metrics"]
+        assert isinstance(metrics, GenerationMetrics)
+        metrics.questions_requested += 2
+        metrics.questions_received += 1
+        metrics.questions_missing_from_response += 1
+        metrics.questions_validated += 1
+        metrics.questions_unique += 1
+        return _fake_open_question_set()
+
+    monkeypatch.setattr("study_questions.config.load_settings", _fake_settings)
+    monkeypatch.setattr("study_questions.pipeline.generate_from_text", fake_generate)
+
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+    assert not at.exception
+    assert calls == 1
+    recorded = at.session_state["generation_metrics"]
+    assert isinstance(recorded, GenerationMetrics)
+    assert recorded.questions_received == 1
+    assert recorded.questions_missing_from_response == 1
+
+    at = _click_button(at, "Revelar resposta")
+    assert not at.exception
+    assert calls == 1
+    assert at.session_state["generation_metrics"].questions_received == 1
+    assert not any("questions_missing_from_response" in item.value for item in at.markdown)
+
+
+def test_diagnostics_are_replaced_for_each_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma nova geração não mistura contadores de execuções anteriores."""
+    from study_questions.metrics import GenerationMetrics
+
+    calls = 0
+
+    def fake_generate(*args: object, **kwargs: object) -> QuestionSet:
+        nonlocal calls
+        calls += 1
+        metrics = kwargs["metrics"]
+        assert isinstance(metrics, GenerationMetrics)
+        metrics.questions_received += calls
+        return _fake_open_question_set()
+
+    monkeypatch.setattr("study_questions.config.load_settings", _fake_settings)
+    monkeypatch.setattr("study_questions.pipeline.generate_from_text", fake_generate)
+
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+    first = at.session_state["generation_metrics"]
+    assert first.questions_received == 1
+
+    at = _click_button(at, "Gerar perguntas")
+    second = at.session_state["generation_metrics"]
+    assert not at.exception
+    assert calls == 2
+    assert second is not first
+    assert second.questions_received == 2

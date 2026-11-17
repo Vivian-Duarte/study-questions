@@ -444,3 +444,128 @@ def test_gemini_closes_client_when_provider_fails(
             generator.generate(model="test-model", prompt="test-prompt")
 
     fake_client.close.assert_called_once()
+
+
+def test_diagnostics_distinguish_structure_type_and_reference_rejections() -> None:
+    """Contabiliza cada descarte sem perder as perguntas aproveitáveis."""
+    from study_questions.metrics import GenerationMetrics
+
+    wrong_type = _multiple_choice_question()
+    bad_reference = _open_question()
+    bad_reference["statement"] = "Qual a principal linguagem?"
+    bad_reference["source_excerpt"] = "Citação inexistente no material."
+
+    provider = FakeGenerator(
+        _response([_open_question(), {"type": "open"}, wrong_type, bad_reference])
+    )
+    metrics = GenerationMetrics()
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=4,
+        question_types=(QuestionType.OPEN,),
+        metrics=metrics,
+    )
+
+    assert len(result.questions) == 1
+    assert len(provider.calls) == 1
+    assert metrics.questions_requested == 4
+    assert metrics.questions_received == 4
+    assert metrics.questions_missing_from_response == 0
+    assert metrics.questions_rejected_structure == 1
+    assert metrics.questions_rejected_type == 1
+    assert metrics.questions_rejected_reference == 1
+    assert metrics.responses_invalid_json == 0
+    assert metrics.responses_invalid_format == 0
+
+
+def test_diagnostics_count_missing_questions_without_treating_them_as_discards() -> None:
+    """O que o Gemini não entregou não deve ser contado como rejeição."""
+    from study_questions.metrics import GenerationMetrics
+
+    provider = FakeGenerator(_response([_open_question()]))
+    metrics = GenerationMetrics()
+    result = generate_questions(
+        _chunk(), _settings(), provider=provider, question_count=5, metrics=metrics
+    )
+
+    assert len(result.questions) == 1
+    assert len(provider.calls) == 1
+    assert metrics.questions_requested == 5
+    assert metrics.questions_received == 1
+    assert metrics.questions_missing_from_response == 4
+    assert metrics.questions_rejected_structure == 0
+    assert metrics.questions_rejected_type == 0
+    assert metrics.questions_rejected_reference == 0
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_field"),
+    [
+        ("não é JSON", "responses_invalid_json"),
+        (json.dumps({"questions": "não é lista"}), "responses_invalid_format"),
+        (_response([]), "responses_empty"),
+        (_response([_open_question(), _open_question()]), "responses_excess"),
+    ],
+)
+def test_diagnostics_record_rejected_response_reasons(response: str, expected_field: str) -> None:
+    """Registra falhas no nível de resposta mesmo quando uma exceção é lançada."""
+    from study_questions.metrics import GenerationMetrics
+
+    provider = FakeGenerator(response)
+    metrics = GenerationMetrics()
+    with pytest.raises((InvalidQuestionResponseError, InsufficientMaterialError)):
+        generate_questions(
+            _chunk(), _settings(), provider=provider, question_count=1, metrics=metrics
+        )
+
+    assert len(provider.calls) == 1
+    assert metrics.questions_requested == 1
+    assert getattr(metrics, expected_field) == 1
+
+    if expected_field == "responses_excess":
+        # A resposta inteira, não apenas o excedente, é rejeitada atualmente.
+        assert metrics.questions_received == 2
+        assert metrics.questions_rejected_excess_response == 2
+    elif expected_field == "responses_empty":
+        assert metrics.questions_received == 0
+        assert metrics.questions_missing_from_response == 1
+    else:
+        assert metrics.questions_received == 0
+        assert metrics.questions_missing_from_response == 0
+
+
+def test_diagnostics_record_failed_validation_when_all_questions_are_rejected() -> None:
+    """Mantém contadores de validação mesmo após a exceção final."""
+    from study_questions.metrics import GenerationMetrics
+
+    provider = FakeGenerator(_response([{"type": "open"}]))
+    metrics = GenerationMetrics()
+    with pytest.raises(InvalidQuestionResponseError):
+        generate_questions(
+            _chunk(), _settings(), provider=provider, question_count=1, metrics=metrics
+        )
+
+    assert metrics.questions_received == 1
+    assert metrics.questions_rejected_structure == 1
+    assert metrics.questions_missing_from_response == 0
+
+
+def test_diagnostics_only_contain_aggregated_counts() -> None:
+    """Não retém o texto do usuário ou a chave do provedor nas métricas."""
+    from dataclasses import asdict
+
+    from study_questions.metrics import GenerationMetrics
+
+    metrics = GenerationMetrics()
+    generate_questions(
+        _chunk(),
+        _settings(),
+        provider=FakeGenerator(_response([_open_question()])),
+        question_count=1,
+        metrics=metrics,
+    )
+    serialized = str(asdict(metrics))
+    assert SOURCE_EXCERPT not in serialized
+    assert "fake-test-key" not in serialized
