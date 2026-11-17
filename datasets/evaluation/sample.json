@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "python_conceitos_basicos",
+      "source_text": "Python é uma linguagem interpretada. A função len retorna o tamanho de uma sequência.",
+      "questions": [
+        {
+          "type": "multiple_choice",
+          "statement": "Qual função retorna o tamanho de uma sequência?",
+          "answer": "len",
+          "explanation": "O documento menciona a função len.",
+          "source_excerpt": "A função len retorna o tamanho de uma sequência.",
+          "options": ["print", "len", "input"]
+        },
+        {
+          "type": "open",
+          "statement": "Como Python é classificada no documento?",
+          "answer": "interpretada",
+          "explanation": "A primeira frase caracteriza a linguagem.",
+          "source_excerpt": "Python é uma linguagem interpretada.",
+          "options": []
+        }
+      ],
+      "expected_answers": ["len", "interpretada"]
+    },
+    {
+      "id": "exemplos_de_falhas_controladas",
+      "source_text": "A água ferve a 100 °C ao nível do mar. O gelo funde a 0 °C ao nível do mar.",
+      "questions": [
+        {
+          "type": "multiple_choice",
+          "statement": "Qual é a temperatura de ebulição da água ao nível do mar?",
+          "answer": "90 °C",
+          "explanation": "Resposta propositalmente incorreta para testar o gabarito.",
+          "source_excerpt": "A água ferve a 100 °C ao nível do mar.",
+          "options": ["90 °C", "100 °C", "80 °C"]
+        },
+        {
+          "type": "multiple_choice",
+          "statement": "Qual é a temperatura de ebulição da água ao nível do mar?",
+          "answer": "100 °C",
+          "explanation": "Duplicada de propósito.",
+          "source_excerpt": "A água ferve a 100 °C ao nível do mar.",
+          "options": ["90 °C", "100 °C", "80 °C"]
+        },
+        {
+          "type": "open",
+          "statement": "Qual a temperatura de fusão do ferro neste material?",
+          "answer": "1538 °C",
+          "explanation": "Referência não existente no material.",
+          "source_excerpt": "O ferro funde a 1538 °C.",
+          "options": []
+        },
+        {
+          "type": "multiple_choice",
+          "statement": "Qual é a temperatura de fusão do gelo?",
+          "answer": "0 °C",
+          "explanation": "Questão estruturalmente inválida.",
+          "source_excerpt": "O gelo funde a 0 °C ao nível do mar.",
+          "options": ["0 °C", "10 °C"]
+        }
+      ],
+      "expected_answers": ["100 °C", null, null, null]
+    }
+  ]
+}
