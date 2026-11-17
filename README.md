@@ -1,60 +1,155 @@
 # Study Questions
 
-Aplicação em Python que transforma materiais didáticos TXT, Markdown e PDF em perguntas de estudo com o Gemini. Inclui um quiz interativo em Streamlit, validação das perguntas com Pydantic e exportação para JSON e Anki.
+**Transforme materiais de estudo em perguntas com inteligência artificial.**
+
+O **Study Questions** é uma aplicação desenvolvida em Python que utiliza a API do **Google Gemini** para gerar questões a partir de documentos TXT, Markdown e PDF. Com uma interface interativa em **Streamlit**, o usuário pode estudar, acompanhar seus acertos e erros e exportar as perguntas para **JSON** ou **Anki**.
+
+O projeto prioriza a rastreabilidade das questões ao conteúdo original, validação estruturada das respostas e uma arquitetura modular, com testes automatizados e métricas de desempenho.
 
 ## Funcionalidades
 
-- Upload de materiais `.txt`, `.md` e `.pdf` com texto extraível.
-- Divisão de textos longos em blocos, com sobreposição controlada.
-- Geração de perguntas abertas e de múltipla escolha com a API Gemini.
-- Validação estrutural de cada pergunta e conferência de citações no texto extraído.
-- Remoção de questões duplicadas.
-- Quiz com respostas, pontuação e paginação de cinco perguntas por página.
-- Exportação das questões para JSON e TSV compatível com Anki.
-- Métricas opcionais de tempo e número de chamadas, usadas internamente.
+- **Importação de materiais:** arquivos `.txt`, `.md` e `.pdf` com texto extraível.
+- **Processamento de documentos:** extração de texto e divisão de materiais longos em blocos com sobreposição controlada.
+- **Geração com IA:** perguntas abertas e de múltipla escolha utilizando o Google Gemini.
+- **Validação de qualidade:** validação individual com Pydantic, verificação dos trechos de referência e remoção de duplicatas.
+- **Quiz interativo:** respostas, acompanhamento de acertos e erros e paginação de até cinco questões por página.
+- **Exportação:** arquivos JSON e TSV compatível com importação no Anki.
+- **Métricas e benchmarks:** acompanhamento interno das solicitações à IA e medições locais de desempenho, sem consumir a API.
 
-**Limitação importante:** o número solicitado é um máximo, não uma garantia. O modelo pode retornar menos perguntas, ou perguntas podem ser descartadas por não cumprirem as validações. A aplicação não efetua chamadas extras para completar a quantidade.
+> **Importante:** a quantidade de perguntas solicitada representa um limite máximo. O Gemini pode gerar menos questões, e respostas inválidas ou duplicadas podem ser descartadas. O projeto não realiza chamadas adicionais para completar automaticamente esse número.
 
-## Tecnologias
+## Stack tecnológica
 
-Python 3.11+, Streamlit, Google Gen AI SDK, Pydantic v2, pypdf, pytest, pytest-cov, Ruff, mypy e GitHub Actions.
+| Categoria | Tecnologia | Utilização |
+| --- | --- | --- |
+| Linguagem | **Python 3.11+** | Lógica da aplicação e processamento dos materiais |
+| Interface | **Streamlit** | Upload de documentos, configuração da geração e quiz |
+| IA generativa | **Google Gemini API** + **Google Gen AI SDK** | Geração de perguntas a partir do conteúdo dos documentos |
+| Modelagem e validação | **Pydantic v2** | Contratos de dados e validação das perguntas |
+| Leitura de PDFs | **pypdf** | Extração de texto de documentos PDF |
+| Testes e cobertura | **pytest** + **pytest-cov** | Testes automatizados e cobertura do código |
+| Qualidade de código | **Ruff** + **mypy** | Lint, formatação e análise estática de tipos |
+| Integração contínua | **GitHub Actions** | Execução das verificações automatizadas em Python 3.11 e 3.12 |
+| Versionamento | **Git** + **GitHub** | Histórico de alterações e colaboração |
 
-## Instalação e execução (Windows / PowerShell)
+## Pré-requisitos
 
-```powershell
-# Clone e acesse o repositório.
+- **Git** instalado.
+- **Python 3.11 ou superior** (recomendado: Python 3.12).
+- Uma **chave de API do Gemini**, obtida no [Google AI Studio](https://aistudio.google.com/app/apikey).
+- Conexão com a internet para gerar questões utilizando a API.
+
+## Instalação e execução
+
+### 1. Clonar o repositório
+
+```bash
 git clone https://github.com/Vivian-Duarte/study-questions.git
 cd study-questions
+```
 
-# Crie o ambiente virtual e instale as dependências.
+### 2. Criar o ambiente virtual e instalar as dependências
+
+**Windows — PowerShell**
+
+```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
 
-# Prepare a configuração local.
+**Linux / macOS**
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e '.[dev]'
+```
+
+> Os exemplos utilizam diretamente o interpretador do ambiente virtual, sem exigir sua ativação. Se você utiliza Python 3.11 no Windows, substitua `py -3.12` por `py -3.11`.
+
+### 3. Configurar a chave do Gemini
+
+Crie seu arquivo `.env` a partir do exemplo fornecido pelo projeto:
+
+**Windows — PowerShell**
+
+```powershell
 Copy-Item .env.example .env
 ```
 
-No arquivo `.env`, configure **`GEMINI_API_KEY`** com uma chave válida. As variáveis `GEMINI_MODEL` e `MAX_CHUNK_WORDS` são opcionais conforme a configuração em `config.py`.
+**Linux / macOS**
 
-**Nunca publique `.env`, chaves de API ou materiais confidenciais em commits, issues ou ZIPs.** O conteúdo dos arquivos enviados à geração é transmitido à API Gemini. Verifique as regras de privacidade, o nível de faturamento e as cotas do projeto usado pela chave.
+```bash
+cp .env.example .env
+```
 
-Para iniciar a interface:
+Abra o arquivo `.env` e configure:
+
+```dotenv
+GEMINI_API_KEY=sua_chave_aqui
+```
+
+O modelo Gemini e o tamanho dos blocos de texto podem ser personalizados com `GEMINI_MODEL` e `MAX_CHUNK_WORDS`, conforme as configurações do projeto.
+
+> **Segurança:** não publique o arquivo `.env` nem sua chave de API. O texto utilizado na geração é enviado ao serviço Gemini; evite utilizar materiais confidenciais sem autorização.
+
+### 4. Iniciar a aplicação
+
+**Windows — PowerShell**
 
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
 
-Abra o endereço local mostrado no terminal (normalmente `http://localhost:8501`).
+**Linux / macOS**
 
-## Utilização
+```bash
+./.venv/bin/python -m streamlit run streamlit_app.py
+```
 
-1. Selecione um documento.
-2. Escolha a quantidade máxima e os tipos de perguntas.
+Abra o endereço informado pelo Streamlit no terminal, geralmente **http://localhost:8501**.
+
+## Como utilizar
+
+1. Envie um arquivo TXT, Markdown ou PDF com conteúdo textual.
+2. Defina a quantidade máxima e os tipos de perguntas desejados.
 3. Clique em **Gerar perguntas**.
-4. Responda às alternativas ou revele as respostas das questões abertas.
-5. Exporte o resultado em JSON ou formato Anki.
+4. Responda às questões de múltipla escolha ou revele as respostas das questões abertas.
+5. Acompanhe seus acertos e erros e navegue pelas páginas do quiz.
+6. Exporte as perguntas para **JSON** ou **Anki (TSV)**, se desejar.
 
-## Qualidade e testes
+## Estrutura do projeto
+
+```text
+study-questions/
+├── streamlit_app.py               # Interface e navegação do quiz
+├── assets/
+│   └── study_questions.css        # Estilos da interface
+├── .streamlit/
+│   └── config.toml                 # Configuração visual do Streamlit
+├── src/
+│   └── study_questions/
+│       ├── config.py              # Configurações da aplicação
+│       ├── models.py              # Modelos e validações com Pydantic
+│       ├── loaders.py             # Leitura e limites de documentos
+│       ├── chunking.py            # Divisão do texto em blocos
+│       ├── prompts.py             # Instruções enviadas ao Gemini
+│       ├── generation.py          # Integração com Gemini e validações
+│       ├── pipeline.py            # Orquestração da geração e deduplicação
+│       ├── metrics.py             # Métricas de geração
+│       ├── quiz.py                # Pontuação e paginação independentes da UI
+│       └── exporters.py           # Exportação JSON e Anki
+├── scripts/
+│   └── benchmark_core.py          # Benchmarks offline
+├── tests/                         # Testes automatizados
+├── pyproject.toml                 # Dependências e ferramentas
+└── README.md
+```
+
+## Testes e qualidade de código
+
+O projeto utiliza **pytest**, **Ruff** e **mypy**. A cobertura mínima configurada é de **80%** dos módulos instrumentados.
+
+**Windows — PowerShell**
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
@@ -63,59 +158,44 @@ Abra o endereço local mostrado no terminal (normalmente `http://localhost:8501`
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
-O projeto exige pelo menos 80% de cobertura dos módulos Python instrumentados. A integração contínua valida Python 3.11 e 3.12.
+**Linux / macOS**
 
-## Benchmarks reproduzíveis (sem Gemini)
+```bash
+./.venv/bin/python -m ruff check .
+./.venv/bin/python -m ruff format --check .
+./.venv/bin/python -m mypy
+./.venv/bin/python -m pytest -v
+```
 
-Use o script abaixo para medir **chunking, exportação JSON/Anki, pontuação do quiz e extração de PDFs sintéticos**, sem chamar a API e sem consumir a cota Gemini.
+O **GitHub Actions** executa verificações automatizadas nas versões Python 3.11 e 3.12.
+
+## Benchmarks de desempenho
+
+O projeto inclui benchmarks para **divisão de texto, exportação JSON/Anki, pontuação e extração de PDFs sintéticos**. Eles não dependem do Gemini e **não consomem cota da API**.
+
+**Windows — PowerShell**
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/benchmark_core.py --words 10000 --questions 100 --pdf-pages 3 --repeat 5
 ```
 
-Para gerar saída JSON e comparar duas revisões no mesmo computador:
+Para salvar os resultados em JSON:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/benchmark_core.py --words 50000 --repeat 5 --json > benchmark-local.json
 ```
 
-O benchmark exibe a **mediana do tempo de execução** e o **pico de alocações Python rastreado pelo `tracemalloc`**. Este pico não representa toda a memória RAM usada pelo processo. Resultados dependem do computador, do Python, do sistema operacional e da carga em segundo plano; não representam o tempo de resposta do Gemini nem devem ser usados como limite fixo para CI. Não é necessário versionar `benchmark-local.json`.
+O benchmark apresenta a **mediana dos tempos de execução** e o **pico de alocações Python monitoradas pelo `tracemalloc`**. Esses valores não equivalem ao consumo total de RAM nem ao tempo de resposta do Gemini. Compare resultados somente em condições semelhantes.
 
-O código de navegação e pontuação do quiz está em `src/study_questions/quiz.py`, separado do Streamlit para facilitar testes e medições.
+## Limitações e considerações de segurança
 
-## Estrutura principal
-
-```text
-study-questions/
-├── streamlit_app.py               # Aplicação Streamlit
-├── assets/study_questions.css     # Estilos da interface
-├── .streamlit/config.toml         # Tema
-├── src/study_questions/
-│   ├── models.py                  # Contratos Pydantic
-│   ├── config.py                  # Configurações da API
-│   ├── loaders.py                 # Leitura e limites dos documentos
-│   ├── chunking.py                # Divisão do material em blocos
-│   ├── prompts.py                 # Instruções de geração
-│   ├── generation.py              # Provedor Gemini e validações
-│   ├── pipeline.py                # Orquestração e deduplicação
-│   ├── metrics.py                 # Métricas opcionais
-│   ├── quiz.py                    # Paginação e pontuação (sem UI)
-│   └── exporters.py               # JSON e Anki
-├── scripts/benchmark_core.py      # Benchmarks offline
-├── tests/                         # Testes unitários e integração
-├── pyproject.toml
-└── README.md
-```
-
-## Limitações e segurança
-
-- PDFs digitalizados sem camada de texto não são processados por OCR.
-- Documentos excessivamente grandes podem ser rejeitados pelos limites de leitura.
-- Limites de arquivo, páginas e caracteres não substituem isolamento de processos ao lidar com PDFs não confiáveis.
-- Questões produzidas por IA devem passar por revisão humana. Uma citação encontrada no PDF não garante, sozinha, que a resposta seja verdadeira.
-- O volume de perguntas gerado pode ser menor do que o solicitado.
-- O uso da API pode estar sujeito a cotas e custos, dependendo do plano e do projeto configurado no Google AI Studio.
+- **PDFs digitalizados:** arquivos sem camada textual não são processados por OCR.
+- **Limites de processamento:** documentos grandes podem ser rejeitados de acordo com os limites de arquivo, páginas e caracteres.
+- **Conteúdo de terceiros:** limites de leitura não substituem isolamento de processos para PDFs não confiáveis.
+- **Qualidade das respostas:** toda questão gerada por IA pode conter erros e deve ser revisada; a presença de uma citação no documento não garante a correção da resposta.
+- **Quantidade de questões:** a quantidade gerada pode ser inferior ao número solicitado.
+- **Uso da API:** limites, cotas e eventuais custos dependem da configuração do projeto no Google AI Studio.
 
 ## Licença
 
-Licença ainda não definida.
+A licença do projeto ainda não foi definida. Consulte os responsáveis pelo repositório antes de reutilizar ou redistribuir o código.
