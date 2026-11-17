@@ -172,3 +172,105 @@ def test_open_question_self_assessment(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert not at.exception
     assert any("1 acerto(s)" in item.value for item in at.markdown)
+
+
+def _fake_many_questions(count: int = 7) -> QuestionSet:
+    """Cria questões independentes para testar a paginação e a pontuação."""
+    return QuestionSet(
+        questions=[
+            Question(
+                type=QuestionType.MULTIPLE_CHOICE,
+                statement=f"Qual linguagem aparece na questão número {index + 1}?",
+                answer="Python",
+                explanation="A fonte menciona Python.",
+                source_excerpt="Python é uma linguagem de programação.",
+                options=["Java", "Python", "Ruby"],
+            )
+            for index in range(count)
+        ]
+    )
+
+
+def test_page_bounds_never_exceed_available_questions() -> None:
+    """Não permite páginas negativas nem índices maiores que o total."""
+    from streamlit_app import _page_bounds
+
+    assert _page_bounds(0, 3) == (0, 0, 0, 1)
+    assert _page_bounds(5, 0) == (0, 5, 0, 1)
+    assert _page_bounds(7, 0) == (0, 5, 0, 2)
+    assert _page_bounds(7, 1) == (5, 7, 1, 2)
+    assert _page_bounds(7, 50) == (5, 7, 1, 2)
+    assert _page_bounds(7, -2) == (0, 5, 0, 2)
+
+
+def test_paginates_questions_in_groups_of_five(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Renderiza apenas cinco cartões por página, usando índices estáveis."""
+    _mock_generation(monkeypatch, _fake_many_questions())
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+
+    assert not at.exception
+    assert sum("PERGUNTA " in item.value for item in at.markdown) == 5
+    assert any("PERGUNTA 1 DE 7" in item.value for item in at.markdown)
+    assert any("Página 1 de 2" in item.value for item in at.markdown)
+
+    at = _click_button(at, "Próxima")
+
+    assert not at.exception
+    assert sum("PERGUNTA " in item.value for item in at.markdown) == 2
+    assert any("PERGUNTA 6 DE 7" in item.value for item in at.markdown)
+    assert any("Página 2 de 2" in item.value for item in at.markdown)
+    assert len(at.download_button) == 2
+
+
+def test_quiz_score_persists_between_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mantém os acertos mesmo quando a pergunta não está mais na tela."""
+    _mock_generation(monkeypatch, _fake_many_questions())
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+    at = _click_button(at, "Python")
+    at = _click_button(at, "Próxima")
+    at = _click_button(at, "Python")
+
+    assert not at.exception
+    assert any("2 acerto(s)" in item.value for item in at.markdown)
+    assert len(at.download_button) == 2
+
+
+def test_new_generation_resets_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uma nova geração começa sempre na primeira página."""
+    _mock_generation(monkeypatch, _fake_many_questions())
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+    at = _click_button(at, "Próxima")
+    assert any("Página 2 de 2" in item.value for item in at.markdown)
+
+    at = _click_button(at, "Gerar perguntas")
+
+    assert not at.exception
+    assert any("Página 1 de 2" in item.value for item in at.markdown)
+    assert any("PERGUNTA 1 DE 7" in item.value for item in at.markdown)
+
+
+def test_exports_are_not_rebuilt_when_answering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gera JSON/Anki uma vez, mesmo após interações com o quiz."""
+    counts = {"json": 0, "anki": 0}
+
+    def fake_json(question_set: QuestionSet) -> str:
+        counts["json"] += 1
+        return question_set.model_dump_json()
+
+    def fake_anki(question_set: QuestionSet) -> str:
+        counts["anki"] += 1
+        return "example-tsv"
+
+    monkeypatch.setattr("study_questions.exporters.export_json", fake_json)
+    monkeypatch.setattr("study_questions.exporters.export_anki_tsv", fake_anki)
+    _mock_generation(monkeypatch, _fake_multiple_choice_set())
+
+    at = _click_button(_upload_text(_app()), "Gerar perguntas")
+    assert counts == {"json": 1, "anki": 1}
+
+    at = _click_button(at, "Python")
+
+    assert not at.exception
+    assert counts == {"json": 1, "anki": 1}

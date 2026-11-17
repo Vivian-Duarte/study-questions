@@ -18,6 +18,7 @@ QUESTION_TYPES = {
 }
 
 APP_DIR = Path(__file__).resolve().parent
+QUESTIONS_PER_PAGE = 5
 RequestSignature = tuple[str, str, int, tuple[QuestionType, ...]]
 
 
@@ -80,10 +81,23 @@ def _is_correct(index: int, question: Question) -> bool | None:
     return given == "__open_correct__"
 
 
-def _choice_styles(question_set: QuestionSet) -> None:
-    """Aplica destaque verde/vermelho apenas às alternativas respondidas."""
+def _page_bounds(total: int, requested_page: int) -> tuple[int, int, int, int]:
+    """Calcula início, fim, página atual e total de páginas do quiz."""
+    pages = max(1, (total + QUESTIONS_PER_PAGE - 1) // QUESTIONS_PER_PAGE)
+    page = max(0, min(requested_page, pages - 1))
+    start = page * QUESTIONS_PER_PAGE
+    return start, min(start + QUESTIONS_PER_PAGE, total), page, pages
+
+
+def _go_to_page(page: int) -> None:
+    """Atualiza somente a página atual do quiz na sessão."""
+    st.session_state["quiz_page"] = page
+
+
+def _choice_styles(question_set: QuestionSet, start: int, end: int) -> None:
+    """Estiliza apenas as alternativas exibidas na página atual."""
     styles: list[str] = []
-    for i, question in enumerate(question_set.questions):
+    for i, question in enumerate(question_set.questions[start:end], start=start):
         if question.type != QuestionType.MULTIPLE_CHOICE:
             continue
         selected = _answers().get(i)
@@ -191,11 +205,18 @@ def _question_card(index: int, total: int, question: Question) -> None:
                 st.write(question.source_excerpt)
 
 
+@st.fragment
 def _render_questions(question_set: QuestionSet, requested_count: int) -> None:
-    """Renderiza o quiz e os downloads mantendo o estado das respostas."""
+    """Atualiza apenas o quiz nas interações com as perguntas."""
     questions = question_set.questions
-    correct = sum(_is_correct(i, q) is True for i, q in enumerate(questions))
-    wrong = sum(_is_correct(i, q) is False for i, q in enumerate(questions))
+    correct = 0
+    wrong = 0
+    for i, question in enumerate(questions):
+        result = _is_correct(i, question)
+        if result is True:
+            correct += 1
+        elif result is False:
+            wrong += 1
 
     title_col, score_col = st.columns([4, 2], vertical_alignment="center")
     with title_col:
@@ -216,16 +237,51 @@ def _render_questions(question_set: QuestionSet, requested_count: int) -> None:
             f"{len(questions)} perguntas válidas."
         )
 
-    _choice_styles(question_set)
-    for i, question in enumerate(questions):
-        _question_card(i, len(questions), question)
+    start, end, page, pages = _page_bounds(len(questions), st.session_state.get("quiz_page", 0))
+    st.session_state["quiz_page"] = page
+
+    _choice_styles(question_set, start, end)
+    for i in range(start, end):
+        _question_card(i, len(questions), questions[i])
+
+    if pages > 1:
+        previous, indicator, following = st.columns([1, 2, 1], vertical_alignment="center")
+        with previous:
+            st.button(
+                "Anterior",
+                key="quiz_previous_page",
+                disabled=page == 0,
+                width="stretch",
+                on_click=_go_to_page,
+                args=(page - 1,),
+            )
+        with indicator:
+            st.markdown(
+                f"<p style='text-align:center'>Página {page + 1} de {pages}</p>",
+                unsafe_allow_html=True,
+            )
+        with following:
+            st.button(
+                "Próxima",
+                key="quiz_next_page",
+                disabled=page == pages - 1,
+                width="stretch",
+                on_click=_go_to_page,
+                args=(page + 1,),
+            )
+
+    # A conversão para download ocorre uma vez por conjunto e permanece apenas nesta sessão.
+    exports: tuple[str, str] | None = st.session_state.get("quiz_exports")
+    if exports is None:
+        exports = (export_json(question_set), export_anki_tsv(question_set))
+        st.session_state["quiz_exports"] = exports
 
     st.subheader("Exportar perguntas")
     left, right = st.columns(2)
     with left:
         st.download_button(
             "Baixar JSON",
-            export_json(question_set),
+            exports[0],
             file_name="questoes.json",
             mime="application/json; charset=utf-8",
             on_click="ignore",
@@ -235,7 +291,7 @@ def _render_questions(question_set: QuestionSet, requested_count: int) -> None:
     with right:
         st.download_button(
             "Baixar para Anki",
-            export_anki_tsv(question_set),
+            exports[1],
             file_name="questoes_anki.txt",
             mime="text/plain; charset=utf-8",
             on_click="ignore",
@@ -314,6 +370,8 @@ def main() -> None:
     if generate:
         st.session_state.pop("generated_questions", None)
         st.session_state.pop("generated_signature", None)
+        st.session_state.pop("quiz_exports", None)
+        st.session_state["quiz_page"] = 0
         st.session_state["quiz_answers"] = {}
         st.session_state["quiz_revealed"] = set()
 
