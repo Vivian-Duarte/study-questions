@@ -181,41 +181,50 @@ def _validate_generated_questions(
     except json.JSONDecodeError as exc:
         raise InvalidQuestionResponseError("O modelo retornou um JSON inválido.") from exc
 
-    if isinstance(payload, dict) and payload.get("questions") == []:
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"questions"}
+        or not isinstance(payload["questions"], list)
+    ):
+        raise InvalidQuestionResponseError("As perguntas não respeitam o modelo de dados.")
+
+    raw_questions = payload["questions"]
+    if not raw_questions:
         raise InsufficientMaterialError(
             "O material não contém informações suficientes para gerar perguntas válidas."
         )
 
-    try:
-        question_set = QuestionSet.model_validate(payload)
-    except ValidationError as exc:
-        raise InvalidQuestionResponseError("As perguntas não respeitam o modelo de dados.") from exc
-
-    if len(question_set.questions) > question_count:
+    if len(raw_questions) > question_count:
         raise InvalidQuestionResponseError("O modelo gerou mais perguntas do que o solicitado.")
 
     verified_questions: list[Question] = []
     normalized_source = _normalize_reference(chunk.text)
+    has_invalid_reference = False
 
-    for question in question_set.questions:
+    for raw_question in raw_questions:
+        try:
+            question = Question.model_validate(raw_question)
+        except ValidationError:
+            continue
+
         if question.type not in question_types:
-            raise InvalidQuestionResponseError("O modelo gerou um tipo de pergunta não solicitado.")
+            continue
 
         normalized_excerpt = _normalize_reference(question.source_excerpt)
-
         if normalized_excerpt not in normalized_source:
+            has_invalid_reference = True
             continue
 
         verified_questions.append(question)
 
     if not verified_questions:
-        raise InvalidQuestionResponseError(
-            "Uma pergunta possui uma referência ausente do documento original."
-        )
+        if has_invalid_reference:
+            raise InvalidQuestionResponseError(
+                "Uma pergunta possui uma referência ausente do documento original."
+            )
+        raise InvalidQuestionResponseError("As perguntas não respeitam o modelo de dados.")
 
     return QuestionSet(questions=verified_questions)
-
-    return question_set
 
 
 def _normalize_reference(text: str) -> str:

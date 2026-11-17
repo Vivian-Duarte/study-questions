@@ -365,3 +365,45 @@ def test_discards_question_with_unverifiable_reference() -> None:
 
     assert len(result.questions) == 1
     assert result.questions[0].statement == ("O que é Python?")
+
+
+def test_preserves_valid_question_when_another_has_invalid_structure() -> None:
+    """Aproveita perguntas corretas mesmo com outras malformadas."""
+    provider = FakeGenerator(_response([_open_question(), {"type": "open"}]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=2,
+    )
+
+    assert len(result.questions) == 1
+    assert result.questions[0].statement == "O que é Python?"
+    assert len(provider.calls) == 1
+
+
+def test_rejects_unexpected_json_root_fields() -> None:
+    """Mantém o contrato estrito do JSON recebido."""
+    provider = FakeGenerator(
+        json.dumps({"questions": [_open_question()], "metadata": "inesperado"})
+    )
+
+    with pytest.raises(InvalidQuestionResponseError, match="modelo de dados"):
+        generate_questions(_chunk(), _settings(), provider=provider)
+
+
+def test_preserves_valid_question_with_unrequested_question_type() -> None:
+    """Não descarta perguntas válidas por causa de um tipo não solicitado."""
+    provider = FakeGenerator(_response([_open_question(), _multiple_choice_question()]))
+
+    result = generate_questions(
+        _chunk(),
+        _settings(),
+        provider=provider,
+        question_count=2,
+        question_types=(QuestionType.OPEN,),
+    )
+
+    assert len(result.questions) == 1
+    assert result.questions[0].type == QuestionType.OPEN
