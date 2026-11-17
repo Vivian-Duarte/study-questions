@@ -11,6 +11,13 @@ from study_questions.generation import GenerationError
 from study_questions.loaders import DocumentError, parse_document
 from study_questions.models import Question, QuestionSet, QuestionType
 from study_questions.pipeline import generate_from_text
+from study_questions.quiz import (
+    OPEN_CORRECT_ANSWER,
+    OPEN_WRONG_ANSWER,
+    answer_result,
+    page_bounds,
+    score_answers,
+)
 
 QUESTION_TYPES = {
     "Aberta": QuestionType.OPEN,
@@ -18,7 +25,6 @@ QUESTION_TYPES = {
 }
 
 APP_DIR = Path(__file__).resolve().parent
-QUESTIONS_PER_PAGE = 5
 RequestSignature = tuple[str, str, int, tuple[QuestionType, ...]]
 
 
@@ -68,25 +74,17 @@ def _reveal_answer(index: int) -> None:
 
 def _grade_open_answer(index: int, correct: bool) -> None:
     """Registra a autoavaliação de uma questão aberta."""
-    _answers()[index] = "__open_correct__" if correct else "__open_wrong__"
+    _answers()[index] = OPEN_CORRECT_ANSWER if correct else OPEN_WRONG_ANSWER
 
 
 def _is_correct(index: int, question: Question) -> bool | None:
     """Retorna acerto/erro, ou None se a questão está sem resposta."""
-    given = _answers().get(index)
-    if given is None:
-        return None
-    if question.type == QuestionType.MULTIPLE_CHOICE:
-        return given == question.answer
-    return given == "__open_correct__"
+    return answer_result(question, _answers().get(index))
 
 
 def _page_bounds(total: int, requested_page: int) -> tuple[int, int, int, int]:
     """Calcula início, fim, página atual e total de páginas do quiz."""
-    pages = max(1, (total + QUESTIONS_PER_PAGE - 1) // QUESTIONS_PER_PAGE)
-    page = max(0, min(requested_page, pages - 1))
-    start = page * QUESTIONS_PER_PAGE
-    return start, min(start + QUESTIONS_PER_PAGE, total), page, pages
+    return page_bounds(total, requested_page)
 
 
 def _go_to_page(page: int) -> None:
@@ -209,14 +207,7 @@ def _question_card(index: int, total: int, question: Question) -> None:
 def _render_questions(question_set: QuestionSet, requested_count: int) -> None:
     """Atualiza apenas o quiz nas interações com as perguntas."""
     questions = question_set.questions
-    correct = 0
-    wrong = 0
-    for i, question in enumerate(questions):
-        result = _is_correct(i, question)
-        if result is True:
-            correct += 1
-        elif result is False:
-            wrong += 1
+    correct, wrong = score_answers(questions, _answers())
 
     title_col, score_col = st.columns([4, 2], vertical_alignment="center")
     with title_col:

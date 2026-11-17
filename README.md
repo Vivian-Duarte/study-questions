@@ -1,225 +1,120 @@
-
 # Study Questions
 
-Gerador de perguntas de estudo a partir de materiais didáticos
-utilizando modelos de linguagem (LLMs).
+Aplicação em Python que transforma materiais didáticos TXT, Markdown e PDF em perguntas de estudo com o Gemini. Inclui um quiz interativo em Streamlit, validação das perguntas com Pydantic e exportação para JSON e Anki.
 
-## Sobre o projeto
+## Funcionalidades
 
-O Study Questions é uma aplicação Python desenvolvida para
-auxiliar estudantes na criação de perguntas de revisão.
+- Upload de materiais `.txt`, `.md` e `.pdf` com texto extraível.
+- Divisão de textos longos em blocos, com sobreposição controlada.
+- Geração de perguntas abertas e de múltipla escolha com a API Gemini.
+- Validação estrutural de cada pergunta e conferência de citações no texto extraído.
+- Remoção de questões duplicadas.
+- Quiz com respostas, pontuação e paginação de cinco perguntas por página.
+- Exportação das questões para JSON e TSV compatível com Anki.
+- Métricas opcionais de tempo e número de chamadas, usadas internamente.
 
-O objetivo é permitir que materiais de estudo sejam
-processados por inteligência artificial para gerar perguntas
-abertas e de múltipla escolha.
-
-O projeto está sendo desenvolvido de forma incremental,
-com foco em qualidade, testes automatizados, tipagem
-estática e organização do código.
-
-## Estado atual
-
-**Sprint 1 — Fundação técnica**
-
-Funcionalidades implementadas:
-
-- Estrutura modular Python com layout src/.
-- Modelos de domínio validados com Pydantic v2.
-- Suporte estrutural a perguntas abertas e de múltipla escolha.
-- Validação de respostas e alternativas.
-- Validação de conjuntos de perguntas.
-- Testes automatizados com Pytest.
-- Análise de código com Ruff e mypy.
-- Configuração de integração contínua com GitHub Actions.
-
-A geração real de perguntas por IA ainda não foi implementada.
+**Limitação importante:** o número solicitado é um máximo, não uma garantia. O modelo pode retornar menos perguntas, ou perguntas podem ser descartadas por não cumprirem as validações. A aplicação não efetua chamadas extras para completar a quantidade.
 
 ## Tecnologias
 
-| Tecnologia | Finalidade |
-|------------|------------|
-| Python 3.11+ | Linguagem principal |
-| Pydantic v2 | Validação dos modelos |
-| Pytest | Testes automatizados |
-| pytest-cov | Cobertura de testes |
-| Ruff | Lint e formatação |
-| mypy | Análise estática de tipos |
-| GitHub Actions | Integração contínua |
-| Hatchling | Empacotamento Python |
+Python 3.11+, Streamlit, Google Gen AI SDK, Pydantic v2, pypdf, pytest, pytest-cov, Ruff, mypy e GitHub Actions.
 
-Tecnologias previstas para etapas futuras:
-
-- Gemini API
-- Streamlit
-- pypdf
-
-## Estrutura do projeto
-
-    study-questions/
-    ├── .github/
-    │   └── workflows/
-    │       └── ci.yml
-    ├── src/
-    │   └── study_questions/
-    │       ├── __init__.py
-    │       └── models.py
-    ├── tests/
-    │   ├── test_package.py
-    │   ├── test_models.py
-    │   └── test_models_contract.py
-    ├── pyproject.toml
-    ├── .env.example
-    ├── .gitignore
-    └── README.md
-
-## Instalação
-
-### Requisitos
-
-- Python 3.11 ou superior
-- Git
-- VS Code (recomendado)
-
-### Clonar o repositório
+## Instalação e execução (Windows / PowerShell)
 
 ```powershell
+# Clone e acesse o repositório.
 git clone https://github.com/Vivian-Duarte/study-questions.git
-
 cd study-questions
-```
 
-### Criar o ambiente virtual
-
-No Windows:
-
-```powershell
-python -m venv .venv
-```
-
-### Instalar as dependências
-
-```powershell
+# Crie o ambiente virtual e instale as dependências.
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
+# Prepare a configuração local.
+Copy-Item .env.example .env
 ```
 
-## Executar os testes
+No arquivo `.env`, configure **`GEMINI_API_KEY`** com uma chave válida. As variáveis `GEMINI_MODEL` e `MAX_CHUNK_WORDS` são opcionais conforme a configuração em `config.py`.
+
+**Nunca publique `.env`, chaves de API ou materiais confidenciais em commits, issues ou ZIPs.** O conteúdo dos arquivos enviados à geração é transmitido à API Gemini. Verifique as regras de privacidade, o nível de faturamento e as cotas do projeto usado pela chave.
+
+Para iniciar a interface:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -v
+.\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
 
-A configuração atual exige cobertura global mínima de 80%.
+Abra o endereço local mostrado no terminal (normalmente `http://localhost:8501`).
 
-## Verificar qualidade do código
+## Utilização
 
-### Lint
+1. Selecione um documento.
+2. Escolha a quantidade máxima e os tipos de perguntas.
+3. Clique em **Gerar perguntas**.
+4. Responda às alternativas ou revele as respostas das questões abertas.
+5. Exporte o resultado em JSON ou formato Anki.
+
+## Qualidade e testes
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check .
-```
-
-### Formatação
-
-```powershell
 .\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m mypy
+.\.venv\Scripts\python.exe -m pytest -v
 ```
 
-### Tipagem
+O projeto exige pelo menos 80% de cobertura dos módulos Python instrumentados. A integração contínua valida Python 3.11 e 3.12.
+
+## Benchmarks reproduzíveis (sem Gemini)
+
+Use o script abaixo para medir **chunking, exportação JSON/Anki, pontuação do quiz e extração de PDFs sintéticos**, sem chamar a API e sem consumir a cota Gemini.
 
 ```powershell
-.\.venv\Scripts\python.exe -m mypy
+.\.venv\Scripts\python.exe scripts/benchmark_core.py --words 10000 --questions 100 --pdf-pages 3 --repeat 5
 ```
 
-## Modelos de domínio
+Para gerar saída JSON e comparar duas revisões no mesmo computador:
 
-A aplicação possui três componentes principais:
+```powershell
+.\.venv\Scripts\python.exe scripts/benchmark_core.py --words 50000 --repeat 5 --json > benchmark-local.json
+```
 
-### QuestionType
+O benchmark exibe a **mediana do tempo de execução** e o **pico de alocações Python rastreado pelo `tracemalloc`**. Este pico não representa toda a memória RAM usada pelo processo. Resultados dependem do computador, do Python, do sistema operacional e da carga em segundo plano; não representam o tempo de resposta do Gemini nem devem ser usados como limite fixo para CI. Não é necessário versionar `benchmark-local.json`.
 
-Define os tipos de perguntas:
+O código de navegação e pontuação do quiz está em `src/study_questions/quiz.py`, separado do Streamlit para facilitar testes e medições.
 
-- multiple_choice
-- open
+## Estrutura principal
 
-### Question
+```text
+study-questions/
+├── streamlit_app.py               # Aplicação Streamlit
+├── assets/study_questions.css     # Estilos da interface
+├── .streamlit/config.toml         # Tema
+├── src/study_questions/
+│   ├── models.py                  # Contratos Pydantic
+│   ├── config.py                  # Configurações da API
+│   ├── loaders.py                 # Leitura e limites dos documentos
+│   ├── chunking.py                # Divisão do material em blocos
+│   ├── prompts.py                 # Instruções de geração
+│   ├── generation.py              # Provedor Gemini e validações
+│   ├── pipeline.py                # Orquestração e deduplicação
+│   ├── metrics.py                 # Métricas opcionais
+│   ├── quiz.py                    # Paginação e pontuação (sem UI)
+│   └── exporters.py               # JSON e Anki
+├── scripts/benchmark_core.py      # Benchmarks offline
+├── tests/                         # Testes unitários e integração
+├── pyproject.toml
+└── README.md
+```
 
-Representa uma pergunta contendo:
+## Limitações e segurança
 
-- Tipo
-- Enunciado
-- Resposta correta
-- Explicação
-- Trecho-fonte
-- Alternativas, quando aplicável
-
-### QuestionSet
-
-Agrupa uma ou mais perguntas validadas.
-
-## Regras de validação
-
-- Perguntas de múltipla escolha exigem 3 a 5 alternativas.
-- A resposta correta deve corresponder a uma alternativa.
-- Alternativas duplicadas não são permitidas.
-- Perguntas abertas não podem possuir alternativas.
-- Campos obrigatórios não podem estar vazios.
-- Campos desconhecidos são rejeitados.
-- Conjuntos de perguntas não podem estar vazios.
-
-## Integração contínua
-
-A pipeline GitHub Actions está definida em:
-
-`.github/workflows/ci.yml`
-
-Ela foi configurada para executar:
-
-1. Instalação das dependências.
-2. Análise de lint com Ruff.
-3. Verificação de formatação.
-4. Análise estática com mypy.
-5. Testes e cobertura com Pytest.
-
-A matriz utiliza Python 3.11 e 3.12.
-
-## Padrões de desenvolvimento
-
-O projeto utiliza:
-
-- Tipagem estática rigorosa.
-- Docstrings no padrão Google.
-- Princípios de Clean Code e SOLID.
-- Testes automatizados.
-- Separação de responsabilidades.
-- Commits no padrão Conventional Commits.
-
-O desenvolvimento ocorre em branches específicas
-para cada tarefa, integradas à main por Pull Requests.
-
-## Próximas funcionalidades
-
-- Carregamento de documentos TXT, MD e PDF.
-- Configuração de variáveis de ambiente.
-- Divisão de documentos extensos em blocos.
-- Integração com o Gemini.
-- Geração automática de perguntas.
-- Validação das respostas produzidas pelo LLM.
-- Exportação em JSON e formato para Anki.
-- Interface web com Streamlit.
-
-## Segurança e limitações
-
-A integração com APIs externas ainda não está disponível.
-
-Quando implementada, as credenciais serão fornecidas
-por variáveis de ambiente, sem armazenamento no Git.
-
-Os materiais enviados ao provedor de IA deverão
-respeitar os requisitos de privacidade e direitos de uso.
-
-
-O projeto utiliza versionamento semântico e ainda está
-em fase de desenvolvimento.
+- PDFs digitalizados sem camada de texto não são processados por OCR.
+- Documentos excessivamente grandes podem ser rejeitados pelos limites de leitura.
+- Limites de arquivo, páginas e caracteres não substituem isolamento de processos ao lidar com PDFs não confiáveis.
+- Questões produzidas por IA devem passar por revisão humana. Uma citação encontrada no PDF não garante, sozinha, que a resposta seja verdadeira.
+- O volume de perguntas gerado pode ser menor do que o solicitado.
+- O uso da API pode estar sujeito a cotas e custos, dependendo do plano e do projeto configurado no Google AI Studio.
 
 ## Licença
 
